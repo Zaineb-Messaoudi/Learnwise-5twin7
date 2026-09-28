@@ -15,6 +15,7 @@ describe('public experience interactions', () => {
     expect(practice).toHaveAttribute('aria-controls', 'feature-panel-practice');
     await user.click(practice);
     expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'feature-tab-practice');
+    expect(screen.getByRole('tabpanel').tagName).toBe('DIV');
     expect(screen.getByRole('heading', { name: /replace passive scrolling/i })).toBeInTheDocument();
   });
 

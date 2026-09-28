@@ -225,11 +225,11 @@ align-items:center;
 padding:30px 0;
 border-bottom:1px solid var(--atlas-line)}
 .step-number{font-size:11px;
-color:#89948e}
+color:#52618a}
 .method-step h3{font-size:22px;
 letter-spacing:-.04em;
 margin:0 0 7px}
-.method-step p{color:#6a7570;
+.method-step p{color:#52618a;
 font-size:13px;
 line-height:1.6;
 margin:0;
@@ -601,7 +601,8 @@ width:100%}
 gap:8px}
 .atlas-appbar .atlas-text-action{font-size:10px}
 }
-@media(prefers-reduced-motion:reduce){.atlas-button{transition:none}
+@media(prefers-reduced-motion:reduce){.atlas-button,.method-step,.node-active .node-dot{transition:none;
+animation:none}
 .atlas-button:hover{transform:none}
 }
 /* Kinetic brand layer: the public homepage should feel alive, not muted. */
@@ -707,7 +708,7 @@ background:#eaf0ff;
 padding-left:10vw;
 padding-right:10vw}
 .method-label{border-color:#ff4f87}
-.method-label span{color:#ff4f87}
+.method-label span{color:#17205c}
 .method-step{border-color:#cdd8fa}
 .method-step h3{color:#17205c}
 .atlas-educators{background:#2848d8}
@@ -836,7 +837,7 @@ gap:5vw}
 .atlas-footer>div:first-child{max-width:250px}
 .atlas-footer p{font-size:11px;
 line-height:1.6;
-color:#6574a0;
+color:#52618a;
 margin:13px 0 0}
 .atlas-footer nav{display:flex;
 gap:20px;
@@ -850,7 +851,7 @@ flex-direction:column;
 align-items:flex-start;
 gap:12px}
 .footer-action span{font-size:10px;
-color:#7785aa}
+color:#52618a}
 .footer-action .atlas-button{min-height:36px;
 font-size:10px}
 .atlas-app{--atlas-ink:#17205c;
@@ -958,7 +959,7 @@ justify-content:space-between;
 gap:12px;
 padding-bottom:16px;
 border-bottom:1px solid #dbe4ff;
-color:#7483ad;
+color:#52618a;
 font-size:10px}
 .demo-status{color:#2848d8;
 font-weight:800}
@@ -1719,7 +1720,7 @@ padding-bottom:48px}
 .atlas-page a:active,.atlas-page button:active{transform:scale(.98)}
 @keyframes atlas-arrive{from{opacity:0;transform:translateY(12px) rotate(1deg)}
 to{opacity:1;transform:translateY(0) rotate(1deg)}}
-@keyframes atlas-pulse{50%{box-shadow:0 0 0 13px #ff4f8720}}
+@keyframes atlas-pulse{50%{transform:scale(1.15)}}
 @media(max-width:900px){.atlas-hero:before{right:-18vw;
 top:0;
 width:90vw}

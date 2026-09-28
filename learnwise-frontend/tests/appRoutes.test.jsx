@@ -1,15 +1,21 @@
 import { resolveWorkspaceView } from '../src/routes/AppRoutes';
-import React from 'react';
+import React, { Suspense } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { render, screen } from '@testing-library/react';
 import { AtlasDashboardPage } from '../src/features/student/pages/AtlasDashboardPage';
 import { ThemeProvider } from '../src/contexts/ThemeContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '../src/contexts/AuthContext';
+import { RouteOverrides } from '../src/routes/AppRoutes';
 
 jest.mock('../src/api/client', () => ({ apiRequest: jest.fn(), isBackendApiEnabled: false }));
 
 describe('workspace route resolution', () => {
+  test('lazy-loads the public homepage route', async () => {
+    render(<MemoryRouter initialEntries={['/']}><Suspense fallback={<p>Loading page</p>}><RouteOverrides/></Suspense></MemoryRouter>);
+    expect(await screen.findByRole('heading', { level: 1, name: /aha moment/i })).toBeInTheDocument();
+  });
+
   test.each([
     ['/student/quizzes/demo/attempt', 'quiz-attempt'],
     ['/student/quizzes/demo/result', 'quiz-result'],

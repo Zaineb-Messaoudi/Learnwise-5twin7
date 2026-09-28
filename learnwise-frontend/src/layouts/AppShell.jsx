@@ -10,7 +10,7 @@ import { isBackendApiEnabled } from '../api/client';
 const icons = { grid: Grid2X2, book: BookOpen, spark: Sparkles, quiz: ListChecks, target: Target, chart: BarChart3, folder: FolderOpen, users: Users, activity: Activity };
 
 function Logo({ dark = false }) {
-  return <Link to="/" className={`logo ${dark ? 'logo-dark' : ''}`} aria-label="Learnwise home"><img className="brand-logo-image" src="/assets/learnwise-wordmark.png" width="512" height="115" alt="Learnwise" /><img className="brand-symbol-image" src="/assets/learnwise-symbol.png" width="96" height="82" alt="" aria-hidden="true" /></Link>;
+  return <Link to="/" className={`logo ${dark ? 'logo-dark' : ''}`} aria-label="Learnwise home"><img className="brand-logo-image" src="/assets/learnwise-wordmark.webp" width="329" height="74" alt="Learnwise" /><img className="brand-symbol-image" src="/assets/learnwise-symbol.png" width="96" height="82" alt="" aria-hidden="true" /></Link>;
 }
 
 function WorkspaceNav({ role, nav, close }) {

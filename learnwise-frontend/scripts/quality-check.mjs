@@ -18,6 +18,10 @@ const requiredSignals = [
   ['learning example announcements', 'src/features/public/components/LearningDemo.jsx', /aria-live="polite"/],
   ['educator illustrative labeling', 'src/features/public/pages/EducatorLandingPage.jsx', /Illustrative view/],
   ['public educator route', 'src/routes/routeManifest.js', /\/educators/],
+  ['valid feature panel element', 'src/features/public/components/SignatureSections.jsx', /<div id=\{`feature-panel-\$\{active\.id\}`\} role="tabpanel"/],
+  ['optimized wordmark asset', 'src/features/public/components/BrandMark.jsx', /learnwise-wordmark\.webp/],
+  ['enforced deployment CSP', 'public/_headers', /Content-Security-Policy:.*require-trusted-types-for 'script'/],
+  ['linked LLM site guide', 'public/llms.txt', /\[Home\]\(https:\/\/learnwise\.ai\/\)/],
 ];
 const missing = requiredSignals.filter(([, file, pattern]) => !pattern.test(fs.readFileSync(path.join(root, file), 'utf8')));
 if (longLines.length || missing.length) {
