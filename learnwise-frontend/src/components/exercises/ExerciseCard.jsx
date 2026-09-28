@@ -1,0 +1,2 @@
+import { ArrowRight, Target } from 'lucide-react';
+export function ExerciseCard({ title, difficulty, progress }) { return <article className="list-card"><div className="list-card-icon orange"><Target size={20}/></div><div><span className="eyebrow">{difficulty}</span><h3>{title}</h3><p>Apply the concept and receive helpful feedback.</p><div className="progress-track"><div className="progress-value" style={{ width: `${progress}%` }}/></div></div><ArrowRight size={17}/></article>; }

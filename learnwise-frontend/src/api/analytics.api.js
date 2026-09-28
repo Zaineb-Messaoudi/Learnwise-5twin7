@@ -1,0 +1,18 @@
+import { apiRequest } from './client';
+export const analyticsApi = {
+    studentOverview: (range = '30d') => apiRequest(`/analytics/student/overview/?range=${encodeURIComponent(range)}`),
+    enrollments: () => apiRequest('/analytics/enrollments/'),
+    enroll: (courseId) => apiRequest('/analytics/enrollments/', { method: 'POST', body: { course_id: courseId } }),
+    learningPaths: () => apiRequest('/analytics/learning-paths/'),
+    learningPath: (id) => apiRequest(`/analytics/learning-paths/${id}/`),
+    learningSessions: (params = '') => apiRequest(`/analytics/learning-sessions/${params}`),
+    startLearningSession: (courseId) => apiRequest('/analytics/learning-sessions/', { method: 'POST', body: { course_id: courseId } }),
+    finishLearningSession: (id) => apiRequest(`/analytics/learning-sessions/${encodeURIComponent(id)}/`, { method: 'PATCH', body: { ended_at: new Date().toISOString() } }),
+    activities: (sessionId) => apiRequest(`/analytics/learning-activities/${sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''}`),
+    recordActivity: (payload) => apiRequest('/analytics/learning-activities/', { method: 'POST', body: payload }),
+    progress: (courseId) => apiRequest(`/analytics/progress/${courseId ? `?course=${encodeURIComponent(courseId)}` : ''}`),
+    performance: (range = '30d') => apiRequest(`/analytics/performance/?range=${encodeURIComponent(range)}`),
+    achievements: () => apiRequest('/analytics/achievements/'),
+    teacherOverview: (range = '30d') => apiRequest(`/analytics/teacher/overview/?range=${encodeURIComponent(range)}`),
+    adminOverview: (range = '30d') => apiRequest(`/analytics/admin/overview/?range=${encodeURIComponent(range)}`),
+};

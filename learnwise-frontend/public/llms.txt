@@ -1,0 +1,19 @@
+# Learnwise
+
+Learnwise is an AI-powered learning studio for courses, uploaded materials, questions, practice, voice learning, and progress tracking.
+
+## Public pages
+
+- /: Product overview and feature tour
+- /faq: Frequently asked questions
+- /contact: Contact Learnwise
+- /auth/register: Create a learner account
+
+## Product capabilities
+
+- Upload PDFs, notes, audio, and course materials.
+- Ask an AI learning companion for explanations and connections.
+- Generate quizzes and exercises from learning materials.
+- Learn with voice prompts and audio-friendly content.
+- Track concepts, activity, progress, and next steps.
+- Provide educators with material management and learning analytics.

@@ -1,0 +1,1 @@
+export function ScoreCard({ score, correct, incorrect }) { return <section className="score-card" aria-label="Quiz score"><strong>{score}%</strong><span>Your score</span><div><b>{correct}</b><small>correct</small><b>{incorrect}</b><small>to revisit</small></div></section>; }

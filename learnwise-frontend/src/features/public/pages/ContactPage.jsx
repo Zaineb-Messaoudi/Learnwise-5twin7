@@ -1,0 +1,6 @@
+import React, { useState } from 'react';
+import { ArrowRight, Mail, ShieldCheck } from 'lucide-react';
+import { useToast } from '../../../components/ui/Toast';
+import { PublicFrame } from '../components/PublicFrame';
+
+export function ContactPage() { const { notify } = useToast(); const [sent, setSent] = useState(false); const submit = event => { event.preventDefault(); setSent(true); notify('Message sent. We’ll get back to you soon.', 'success'); }; return <PublicFrame><main className="contact-page"><div><span className="kicker">Get in touch</span><h1>Let’s talk about learning.</h1><p>Questions, partnerships, or feedback. Send a note to the Learnwise team.</p><div className="contact-points"><span><Mail size={16}/> hello@learnwise.ai</span><span><ShieldCheck size={16}/> We reply within one business day</span></div></div><form className="contact-form" onSubmit={submit}><label>Email<input name="email" type="email" required placeholder="you@example.com"/></label><label>Subject<input name="subject" required minLength="3" placeholder="How can we help?"/></label><label>Message<textarea name="message" required minLength="10" placeholder="Tell us a little more..." rows={5}/></label><button className="button" type="submit">{sent ? 'Message sent' : 'Send message'} <ArrowRight size={15}/></button></form></main></PublicFrame>; }

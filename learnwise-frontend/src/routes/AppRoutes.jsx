@@ -1,0 +1,195 @@
+import React, { lazy } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { SignatureLanding } from '../features/public/pages/SignatureLandingPage';
+import { AtlasDashboardPage } from '../features/student/pages/AtlasDashboardPage';
+import { LearningPathPage } from '../features/student/pages/LearningPathPage';
+import { Landing, PublicSectionPage } from '../pages/PublicPages';
+import { AuthPage, NotFound } from '../features/auth';
+import { LegalPage } from '../features/public/pages/LegalPage';
+import { EducatorLandingPage } from '../features/public/pages/EducatorLandingPage';
+const StudentDashboard = lazy(() => import('../features/student/pages/StudentDashboard').then(module => ({ default: module.StudentDashboard })));
+const CoursesPage = lazy(() => import('../features/student/pages/CoursesPage').then(module => ({ default: module.CoursesPage })));
+const AssistantPage = lazy(() => import('../features/student/pages/AssistantPage').then(module => ({ default: module.AssistantPage })));
+const VoicePage = lazy(() => import('../features/student/pages/VoicePage').then(module => ({ default: module.VoicePage })));
+const ProgressPage = lazy(() => import('../features/student/pages/ProgressPage').then(module => ({ default: module.ProgressPage })));
+const PerformancePage = lazy(() => import('../features/student/pages/PerformancePage').then(module => ({ default: module.PerformancePage })));
+const AchievementsPage = lazy(() => import('../features/student/pages/AchievementsPage').then(module => ({ default: module.AchievementsPage })));
+const SearchPage = lazy(() => import('../features/student/pages/SearchPage').then(module => ({ default: module.SearchPage })));
+const NotebookLibraryPage = lazy(() => import('../features/student/pages/NotebookLibraryPage').then(module => ({ default: module.NotebookLibraryPage })));
+const NotebookWorkspacePage = lazy(() => import('../features/student/pages/NotebookWorkspacePage').then(module => ({ default: module.NotebookWorkspacePage })));
+const TeacherDashboard = lazy(() => import('../features/staff/pages/StaffDashboard').then(module => ({ default: module.TeacherDashboard })));
+const AdminDashboard = lazy(() => import('../features/staff/pages/StaffDashboard').then(module => ({ default: module.AdminDashboard })));
+const SimpleListPage = lazy(() => import('../features/staff/pages/SimpleListPage').then(module => ({ default: module.SimpleListPage })));
+const DetailPage = lazy(() => import('../features/staff/pages/WorkspaceDetailPage').then(module => ({ default: module.WorkspaceDetailPage })));
+const CourseManagerPage = lazy(() => import('../features/staff/pages/CourseManagerPage').then(module => ({ default: module.CourseManagerPage })));
+const ContentManagementPage = lazy(() => import('../features/staff/pages/ContentManagementPage').then(module => ({ default: module.ContentManagementPage })));
+const TeacherStudentsPage = lazy(() => import('../features/staff/pages/ResourcePages').then(module => ({ default: module.TeacherStudentsPage })));
+const TeacherAnalyticsPage = lazy(() => import('../features/staff/pages/StaffDashboard').then(module => ({ default: module.TeacherAnalyticsPage })));
+const AssessmentStudioPage = lazy(() => import('../features/staff/pages/AssessmentStudioPage').then(module => ({ default: module.AssessmentStudioPage })));
+const AdminUsersPage = lazy(() => import('../features/staff/pages/ResourcePages').then(module => ({ default: module.AdminUsersPage })));
+const AdminAnalyticsPage = lazy(() => import('../features/staff/pages/StaffDashboard').then(module => ({ default: module.AdminAnalyticsPage })));
+const AdminActivityPage = lazy(() => import('../features/staff/pages/ResourcePages').then(module => ({ default: module.AdminActivityPage })));
+const AdminNotificationsPage = lazy(() => import('../features/staff/pages/ResourcePages').then(module => ({ default: module.AdminNotificationsPage })));
+const AdminContentPage = lazy(() => import('../features/staff/pages/ResourcePages').then(module => ({ default: module.AdminContentPage })));
+const SettingsPage = lazy(() => import('../features/staff/pages/SettingsPage').then(module => ({ default: module.SettingsPage })));
+const CourseDetailPage = lazy(() => import('../features/student/pages/CourseDetailPage').then(module => ({ default: module.CourseDetailPage })));
+const ExerciseDetailPage = lazy(() => import('../features/student/pages/ExerciseDetailPage').then(module => ({ default: module.ExerciseDetailPage })));
+const QuizAttemptPage = lazy(() => import('../features/student/pages/QuizAttemptPage').then(module => ({ default: module.QuizAttemptPage })));
+const QuizResultPage = lazy(() => import('../features/student/pages/QuizResultPage').then(module => ({ default: module.QuizResultPage })));
+const QuizOverviewPage = lazy(() => import('../features/student/pages/QuizOverviewPage').then(module => ({ default: module.QuizOverviewPage })));
+const QuizLibraryPage = lazy(() => import('../features/student/pages/QuizLibraryPage').then(module => ({ default: module.QuizLibraryPage })));
+const ExerciseLibraryPage = lazy(() => import('../features/student/pages/ExerciseLibraryPage').then(module => ({ default: module.ExerciseLibraryPage })));
+
+const ContactPage = lazy(() => import('../features/public/pages/ContactPage').then(module => ({ default: module.ContactPage })));
+const FaceAuthPage = lazy(() => import('../features/public/pages/FaceAuthPage').then(module => ({ default: module.FaceAuthPage })));
+const FaqPage = lazy(() => import('../features/public/pages/FaqPage').then(module => ({ default: module.FaqPage })));
+const ForgotPasswordPage = lazy(() => import('../features/public/pages/ForgotPasswordPage').then(module => ({ default: module.ForgotPasswordPage })));
+const UploadMaterialsPage = lazy(() => import('../features/public/pages/UploadMaterialsPage').then(module => ({ default: module.UploadMaterialsPage })));
+
+export function RouteBoundary({ children }) {
+  const location = useLocation();
+  const { user } = useAuth();
+  const routeRole = location.pathname.split('/')[1];
+  if (['student', 'teacher', 'admin'].includes(routeRole)) {
+    if (!user) return <Navigate to={`/auth/login?next=${encodeURIComponent(location.pathname)}`} replace />;
+    if (user.role !== routeRole) return <Navigate to={`/${user.role}/dashboard`} replace />;
+  }
+  return <>{children}</>;
+}
+
+export function RouteOverrides() {
+  const path = useLocation().pathname;
+  if (path === '/') return <SignatureLanding />;
+  if (path === '/student/dashboard') return <AtlasDashboardPage />;
+  if (path === '/student/learning-path') return <LearningPathPage />;
+  if (path === '/educators') return <EducatorLandingPage />;
+  if (path === '/auth/face-login') return <FaceAuthPage />;
+  if (path === '/auth/forgot-password' || path === '/auth/reset-password') return <ForgotPasswordPage />;
+  if (path === '/contact') return <ContactPage />;
+  if (path === '/faq') return <FaqPage />;
+  if (path === '/teacher/materials/upload') return <UploadMaterialsPage />;
+  return <CompleteApp />;
+}
+
+function WorkspaceRouter({ role }) {
+  const { pathname } = useLocation();
+  if (role === 'student') {
+    if (pathname === '/student/notebooks') return <NotebookLibraryPage />;
+    if (/^\/student\/notebooks\/[^/]+$/.test(pathname)) return <NotebookWorkspacePage />;
+    if (pathname === '/student/search') return <SearchPage />;
+    if (pathname === '/student/courses') return <CoursesPage />;
+    if (/^\/student\/courses\/[^/]+\/player$/.test(pathname)) return <CourseDetailPage player />;
+    if (/^\/student\/courses\/[^/]+$/.test(pathname)) return <CourseDetailPage />;
+    if (pathname === '/student/assistant' || /^\/student\/assistant\/[^/]+$/.test(pathname)) return <AssistantPage />;
+    if (pathname === '/student/voice-question') return <VoicePage />;
+    if (pathname === '/student/progress') return <ProgressPage />;
+    if (pathname === '/student/performance') return <PerformancePage />;
+    if (pathname === '/student/achievements') return <AchievementsPage />;
+    if (/^\/student\/quizzes\/[^/]+\/attempt$/.test(pathname)) return <QuizAttemptPage />;
+    if (/^\/student\/quizzes\/[^/]+\/result$/.test(pathname)) return <QuizResultPage />;
+    if (pathname === '/student/quizzes') return <QuizLibraryPage />;
+    if (/^\/student\/quizzes\/[^/]+$/.test(pathname)) return <QuizOverviewPage />;
+    if (/^\/student\/exercises\/[^/]+$/.test(pathname)) return <ExerciseDetailPage />;
+    if (pathname === '/student/exercises') return <ExerciseLibraryPage />;
+    if (!isKnownWorkspacePath(pathname, role)) return <NotFound />;
+    return <DetailPage role={role} title={titleFromPath(pathname)} description="Continue building confidence in this learning area." variant={variantFromPath(pathname)} />;
+  }
+  if (pathname === '/teacher/dashboard') return <TeacherDashboard />;
+  if (pathname === '/teacher/courses' || pathname === '/teacher/courses/new' || /^\/teacher\/courses\/[^/]+(?:\/edit)?$/.test(pathname)) return <CourseManagerPage />;
+  if (pathname === '/teacher/materials') return <ContentManagementPage />;
+  if (pathname === '/teacher/transcriptions') return <ContentManagementPage mode="transcriptions" />;
+  if (pathname === '/teacher/summaries') return <ContentManagementPage mode="summaries" />;
+  if (['/teacher/audio-processing', '/teacher/pdf-processing'].includes(pathname)) return <ContentManagementPage />;
+  if (pathname === '/teacher/students' || /^\/teacher\/students\/[^/]+$/.test(pathname)) return <TeacherStudentsPage />;
+  if (pathname === '/teacher/quizzes' || pathname === '/teacher/questions' || pathname === '/teacher/exercises' || pathname === '/teacher/ai-generation') return <AssessmentStudioPage />;
+  if (pathname === '/teacher/analytics') return <TeacherAnalyticsPage />;
+  if (pathname === '/teacher/ai-generation') return <TeacherAiGenerationPage />;
+  if (pathname === '/teacher/settings' || pathname === '/teacher/profile') return <SettingsPage role="teacher" />;
+  if (pathname === '/admin/dashboard') return <AdminDashboard />;
+  if (pathname === '/admin/users' || pathname === '/admin/students' || pathname === '/admin/teachers') return <AdminUsersPage />;
+  if (pathname === '/admin/courses' || pathname === '/admin/quizzes' || pathname === '/admin/exercises') return <AdminContentPage />;
+  if (pathname === '/admin/analytics' || pathname === '/admin/ai-usage') return <AdminAnalyticsPage />;
+  if (pathname === '/admin/settings' || pathname === '/admin/profile') return <SettingsPage role="admin" />;
+  if (pathname === '/admin/activity') return <AdminActivityPage />;
+  if (pathname === '/admin/notifications') return <AdminNotificationsPage />;
+  if (!isKnownWorkspacePath(pathname, role)) return <NotFound />;
+  return <DetailPage role={role} title={titleFromPath(pathname)} description="Manage your Learnwise workspace with clarity." variant={variantFromPath(pathname)} />;
+}
+
+function isKnownWorkspacePath(pathname, role) {
+  const patterns = role === 'student'
+    ? [/^\/student\/(performance|achievements|sessions|activity|notifications|profile|settings)$/]
+    : role === 'teacher'
+      ? [/^\/teacher\/dashboard$/, /^\/teacher\/courses$/, /^\/teacher\/courses\/new$/, /^\/teacher\/courses\/[^/]+(?:\/edit)?$/, /^\/teacher\/(materials|audio-processing|pdf-processing|transcriptions|summaries|ai-generation|quizzes|questions|exercises|analytics|profile|settings)$/, /^\/teacher\/students(?:\/[^/]+)?$/]
+      : [/^\/admin\/(dashboard|users|students|teachers|courses|quizzes|exercises|ai-usage|analytics|activity|notifications|settings|profile)$/, /^\/admin\/users\/[^/]+$/];
+  return patterns.some(pattern => pattern.test(pathname));
+}
+
+export function resolveWorkspaceView(pathname, role = 'student') {
+  if (role === 'student') {
+    if (pathname === '/student/notebooks') return 'notebook-library';
+    if (/^\/student\/notebooks\/[^/]+$/.test(pathname)) return 'notebook-workspace';
+    if (pathname === '/student/search') return 'search';
+    if (pathname === '/student/courses') return 'courses';
+    if (/^\/student\/courses\/[^/]+\/player$/.test(pathname)) return 'course-player';
+    if (/^\/student\/courses\/[^/]+$/.test(pathname)) return 'course-detail';
+    if (pathname.startsWith('/student/assistant')) return 'assistant';
+    if (pathname === '/student/voice-question') return 'voice';
+    if (pathname === '/student/progress') return 'progress';
+    if (pathname === '/student/performance') return 'performance';
+    if (pathname === '/student/achievements') return 'achievements';
+    if (/^\/student\/quizzes\/[^/]+\/attempt$/.test(pathname)) return 'quiz-attempt';
+    if (/^\/student\/quizzes\/[^/]+\/result$/.test(pathname)) return 'quiz-result';
+    if (pathname === '/student/quizzes') return 'quizzes';
+    if (/^\/student\/quizzes\/[^/]+$/.test(pathname)) return 'quiz-overview';
+    if (/^\/student\/exercises\/[^/]+$/.test(pathname)) return 'exercise-detail';
+    if (pathname === '/student/exercises') return 'exercises';
+  }
+  if (role === 'teacher') {
+    if (pathname === '/teacher/ai-generation') return 'teacher-ai-generation';
+    if (pathname === '/teacher/analytics') return 'teacher-analytics';
+  }
+  if (role === 'admin') {
+    if (pathname === '/admin/activity') return 'admin-activity';
+    if (pathname === '/admin/notifications') return 'admin-notifications';
+  }
+  if (pathname === `/${role}/dashboard`) return `${role}-dashboard`;
+  return 'detail';
+}
+
+function titleFromPath(pathname) {
+  const value = pathname.split('/').filter(Boolean).at(-1) || 'dashboard';
+  return value.replaceAll('-', ' ').replace(/\b\w/g, character => character.toUpperCase());
+}
+
+function variantFromPath(pathname) {
+  if (pathname.includes('upload') || pathname.includes('processing')) return 'upload';
+  if (pathname.includes('edit') || pathname.includes('transcription') || pathname.includes('summary')) return 'editor';
+  if (pathname.includes('result') || pathname.includes('activity')) return 'timeline';
+  if (pathname.includes('analytics') || pathname.includes('performance') || pathname.includes('usage')) return 'cards';
+  if (pathname.includes('attempt')) return 'quiz';
+  return pathname.includes('courses') || pathname.includes('users') || pathname.includes('students') ? 'table' : 'cards';
+}
+
+export function CompleteApp() {
+  return <Routes>
+    <Route path="/" element={<Landing />} />
+    <Route path="/about" element={<PublicSectionPage kind="about" title="Learning should feel more human." description="Learnwise combines thoughtful design, multimodal AI, and practical learning science to help more people make progress." />} />
+    <Route path="/features" element={<PublicSectionPage kind="features" title="Everything you need to go further." description="From source-grounded notebooks and voice questions to active practice and useful progress signals, your whole journey lives here." />} />
+    <Route path="/how-it-works" element={<PublicSectionPage kind="workflow" title="A simple loop for meaningful progress." description="Upload your material, ask better questions, practice deliberately, and use your progress to choose the next step." />} />
+    <Route path="/educators" element={<EducatorLandingPage />} />
+    <Route path="/terms" element={<LegalPage type="terms" />} />
+    <Route path="/privacy" element={<LegalPage type="privacy" />} />
+    <Route path="/auth/login" element={<AuthPage />} />
+    <Route path="/auth/register" element={<AuthPage register />} />
+    <Route path="/auth/verify" element={<AuthPage />} />
+    <Route path="/student/*" element={<WorkspaceRouter role="student" />} />
+    <Route path="/teacher/*" element={<WorkspaceRouter role="teacher" />} />
+    <Route path="/admin/*" element={<WorkspaceRouter role="admin" />} />
+    <Route path="/403" element={<NotFound />} />
+    <Route path="/404" element={<NotFound />} />
+    <Route path="/500" element={<NotFound />} />
+    <Route path="*" element={<NotFound />} />
+  </Routes>;
+}

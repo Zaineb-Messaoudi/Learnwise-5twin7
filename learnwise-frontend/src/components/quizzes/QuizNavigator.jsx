@@ -1,0 +1,1 @@
+export function QuizNavigator({ count, current, onSelect }) { return <div className="quiz-navigator" aria-label="Quiz question navigator">{Array.from({ length: count }, (_, index) => <button className={current === index ? 'current' : ''} aria-label={`Question ${index + 1}`} onClick={() => onSelect(index)} key={index}>{index + 1}</button>)}</div>; }

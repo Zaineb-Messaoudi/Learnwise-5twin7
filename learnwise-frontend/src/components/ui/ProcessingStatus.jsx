@@ -1,0 +1,1 @@
+export function ProcessingStatus({ status, progress }) { return <div className="processing-status-card"><span className={`status-dot ${status === 'Failed' ? 'failed' : status === 'Completed' ? 'done' : 'active'}`}/><b>{status}</b><div className="progress-track"><div className="progress-value" style={{ width: `${progress}%` }}/></div><span>{progress}%</span></div>; }

@@ -1,0 +1,2 @@
+import { Bell, Check } from 'lucide-react';
+export function NotificationCenter() { return <section className="notification-center"><div className="section-title"><h2>Notifications</h2><button className="button button-ghost">Mark all read</button></div>{['AI processing completed', 'New quiz available', 'Achievement unlocked'].map((item, index) => <div className="notification-row" key={item}><span className="notification-bullet"><Bell size={13}/></span><div><b>{item}</b><span>{index + 1} hour{index ? 's' : ''} ago</span></div><Check size={14}/></div>)}</section>; }

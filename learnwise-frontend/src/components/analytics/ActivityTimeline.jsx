@@ -1,0 +1,1 @@
+export function ActivityTimeline({ items }) { return <div className="timeline-card">{items.map(item => <div className="timeline-row" key={item.title}><span className="timeline-dot green"/><div><b>{item.title}</b><span>{item.meta}</span></div></div>)}</div>; }

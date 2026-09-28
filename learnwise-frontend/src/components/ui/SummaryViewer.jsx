@@ -1,0 +1,1 @@
+export function SummaryViewer() { return <section className="summary-viewer"><span className="eyebrow">AI SUMMARY</span><h3>Key ideas from this material</h3><ul><li>Core concepts and vocabulary</li><li>Examples to remember</li><li>Recommended next practice</li></ul><button className="button button-secondary">Regenerate summary</button></section>; }

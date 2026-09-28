@@ -1,0 +1,11 @@
+import React, { useState } from 'react';
+import { ArrowRight, Sparkles } from 'lucide-react';
+
+const suggestions = ['Explain it like I am new to calculus', 'Give me a 3-question challenge', 'Connect this to image recognition'];
+
+export function LearningDemo() {
+  const [question, setQuestion] = useState('Why does backpropagation work?');
+  const [answered, setAnswered] = useState(false);
+  const ask = event => { event.preventDefault(); if (question.trim()) setAnswered(true); };
+  return <section className="learning-demo" aria-labelledby="demo-heading"><div className="demo-intro"><p className="atlas-kicker">Try the feeling</p><h2 id="demo-heading">Ask one good question.<br /><i>See what happens next.</i></h2><p>This is the core Learnwise loop: ask, understand, test, connect. No empty chat window, no content maze.</p></div><div className="demo-console"><div className="demo-console-top"><span className="demo-status"><i aria-hidden="true" /> Interactive example</span><span>Example conversation</span></div><div className="demo-chat" aria-live="polite" aria-atomic="false"><div className="demo-bubble companion"><span className="demo-avatar" aria-hidden="true"><Sparkles size={14} /></span><p>What are you curious about today?</p></div>{answered && <div className="demo-bubble response"><span className="demo-avatar" aria-hidden="true">LW</span><p>This example shows how your companion could use course materials to explain “{question.trim()}” and suggest a next practice step.</p></div>}</div><form className="demo-input-row" onSubmit={ask}><label className="sr-only" htmlFor="learning-question">Ask Learnwise a question</label><input id="learning-question" name="question" autoComplete="off" spellCheck={false} value={question} onChange={event => { setQuestion(event.target.value); setAnswered(false); }} placeholder="Ask anything about what you are learning…" /><button className="demo-send" type="submit" aria-label="Show an example response"><ArrowRight size={17} /></button></form><div className="demo-suggestions" aria-label="Suggested questions">{suggestions.map(item => <button key={item} type="button" onClick={() => { setQuestion(item); setAnswered(false); }}>{item}</button>)}</div></div></section>;
+}

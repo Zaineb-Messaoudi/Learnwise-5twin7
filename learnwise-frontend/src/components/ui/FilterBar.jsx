@@ -1,0 +1,1 @@
+export function FilterBar({ filters, selected, onSelect }) { return <div className="segmented">{filters.map(filter => <button className={selected === filter ? 'selected' : ''} onClick={() => onSelect(filter)} key={filter}>{filter}</button>)}</div>; }

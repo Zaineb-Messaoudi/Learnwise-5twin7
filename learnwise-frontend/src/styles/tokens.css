@@ -1,0 +1,17 @@
+/* Learnwise visual contract. Component styles should consume these semantic roles. */
+:root {
+  --lw-ink: #17205c;
+  --lw-ink-soft: #2848d8;
+  --lw-paper: #f8faff;
+  --lw-surface: #ffffff;
+  --lw-line: #dbe4ff;
+  --lw-lime: #d8ff45;
+  --lw-pink: #ff4f87;
+  --lw-cyan: #57d8ff;
+  --lw-copy: #52618a;
+  --lw-copy-inverse: #d6e0ff;
+  --lw-radius-sm: 4px;
+  --lw-radius-md: 12px;
+  --lw-shadow-accent: 4px 4px 0 var(--lw-ink);
+  --lw-focus-ring: 3px solid var(--lw-pink);
+}

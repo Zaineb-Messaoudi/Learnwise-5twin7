@@ -1,0 +1,10 @@
+.brand-letter{font-family:Arial,sans-serif;
+font-size:19px;
+line-height:1;
+font-weight:800}
+.google-letter{background:linear-gradient(90deg,#4285f4 0 25%,#34a853 25% 50%,#fbbc05 50% 75%,#ea4335 75%);
+-webkit-background-clip:text;
+background-clip:text;
+color:transparent}
+.facebook-letter{color:#1877f2;
+font-size:22px}

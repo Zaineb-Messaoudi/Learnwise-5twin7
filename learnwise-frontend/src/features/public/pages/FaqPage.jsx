@@ -1,0 +1,6 @@
+import React, { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { PublicFrame } from '../components/PublicFrame';
+
+const items = [['What is Learnwise?', 'Learnwise is a multimodal learning workspace that turns your course materials into explanations, practice, and useful progress signals.'], ['Can I upload audio and PDF courses?', 'Learnwise supports PDF, MP3, WAV, DOCX, and TXT course materials.'], ['Is the AI grounded in my course?', 'The assistant uses your course materials to provide relevant explanations and answers.'], ['Can educators create quizzes?', 'Educators can generate, edit, publish, and review quizzes and exercises from their materials.']];
+export function FaqPage() { const [open, setOpen] = useState(0); return <PublicFrame><main className="faq-page"><span className="kicker">Frequently asked</span><h1>Good questions welcome.</h1><p>Everything you need to know before you start.</p><div className="faq-list">{items.map(([question, answer], index) => <div className={`faq-item ${open === index ? 'open' : ''}`} key={question}><button type="button" onClick={() => setOpen(open === index ? -1 : index)} aria-expanded={open === index} aria-controls={`faq-answer-${index}`}><b>{question}</b><ChevronDown size={17}/></button>{open === index && <p id={`faq-answer-${index}`}>{answer}</p>}</div>)}</div></main></PublicFrame>; }

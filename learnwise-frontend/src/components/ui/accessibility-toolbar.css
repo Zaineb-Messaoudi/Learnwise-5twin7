@@ -1,0 +1,117 @@
+.a11y-tools{position:fixed;
+right:18px;
+bottom:18px;
+z-index:200}
+.a11y-trigger{display:flex;
+align-items:center;
+gap:8px;
+border:2px solid #17205c;
+background:#d8ff45;
+color:#17205c;
+border-radius:999px;
+padding:10px 14px;
+font-weight:800;
+font-size:11px;
+box-shadow:4px 4px 0 #ff4f87;
+cursor:pointer}
+.a11y-trigger:focus-visible,.a11y-preference:focus-visible,.a11y-close:focus-visible,.a11y-reset:focus-visible{outline:3px solid #57d8ff;
+outline-offset:3px}
+.a11y-panel{position:absolute;
+right:0;
+bottom:53px;
+width:min(360px,calc(100vw - 36px));
+background:#fff;
+color:#17205c;
+border:2px solid #17205c;
+box-shadow:7px 7px 0 #ff4f87;
+padding:20px}
+.a11y-panel-head{display:flex;
+justify-content:space-between;
+align-items:start;
+gap:15px}
+.a11y-overline{font-size:9px;
+text-transform:uppercase;
+letter-spacing:.1em;
+color:#2848d8;
+font-weight:800}
+.a11y-panel h2{font-family:Manrope,sans-serif;
+font-size:19px;
+letter-spacing:-.04em;
+margin:7px 0 0}
+.a11y-close{border:0;
+background:transparent;
+color:#17205c;
+padding:4px;
+cursor:pointer}
+.a11y-intro{color:#52618a;
+font-size:11px;
+line-height:1.55;
+margin:14px 0}
+.a11y-options{display:flex;
+flex-direction:column;
+gap:5px}
+.a11y-preference{display:grid;
+grid-template-columns:30px 1fr 23px;
+align-items:center;
+gap:9px;
+text-align:left;
+border:1px solid #dbe4ff;
+background:#f8faff;
+color:#17205c;
+padding:10px;
+cursor:pointer}
+.a11y-preference:hover,.a11y-preference.selected{border-color:#2848d8;
+background:#eaf0ff}
+.a11y-preference-icon{display:grid;
+place-items:center;
+color:#2848d8}
+.a11y-preference b,.a11y-preference small{display:block}
+.a11y-preference b{font-size:11px}
+.a11y-preference small{font-size:9px;
+color:#60709a;
+margin-top:3px;
+line-height:1.25}
+.a11y-check{width:19px;
+height:19px;
+border:1px solid #bdcafa;
+display:grid;
+place-items:center;
+color:#17205c}
+.a11y-preference.selected .a11y-check{background:#d8ff45;
+border-color:#17205c}
+.a11y-reset{display:flex;
+align-items:center;
+gap:5px;
+background:transparent;
+border:0;
+color:#52618a;
+font-size:10px;
+font-weight:800;
+padding:12px 0 0;
+cursor:pointer}
+@media(max-width:600px){.a11y-tools{right:12px;
+bottom:12px}
+.a11y-trigger span{display:none}
+.a11y-trigger{width:45px;
+height:45px;
+padding:0;
+justify-content:center}
+.a11y-panel{right:-2px;
+bottom:57px}
+}
+html.a11y-high-contrast{filter:contrast(1.12)}
+html.a11y-high-contrast body{background:#fff;
+color:#000}
+html.a11y-high-contrast a,html.a11y-high-contrast button{ text-decoration-thickness:2px}
+html.a11y-calm *,html.a11y-calm *::before,html.a11y-calm *::after{animation-duration:.01ms!important;
+animation-iteration-count:1!important;
+transition-duration:.01ms!important;
+scroll-behavior:auto!important}
+html.a11y-calm .field-orbit,html.a11y-calm .stage-decoration{display:none}
+html.a11y-large-text{font-size:112.5%}
+html.a11y-large-text .atlas-page p,html.a11y-large-text .atlas-app p{line-height:1.8}
+html.a11y-readable-font body,html.a11y-readable-font button,html.a11y-readable-font input,html.a11y-readable-font textarea,html.a11y-readable-font select{font-family:Arial,sans-serif;
+letter-spacing:.015em}
+html.a11y-focus-guide :focus-visible{outline:4px solid #ff4f87!important;
+outline-offset:5px!important;
+box-shadow:0 0 0 7px #d8ff45!important}
