@@ -13,5 +13,7 @@ export const assistantApi = {
     },
     voiceQuestion: (questionId) => apiRequest(`/assistant/voice-questions/${questionId}/`),
     updateVoiceTranscript: (questionId, transcript) => apiRequest(`/assistant/voice-questions/${questionId}/`, { method: 'PATCH', body: { transcript } }),
+    generateIllustration: (sessionId, prompt, style = 'educational') => apiRequest(`/assistant/sessions/${sessionId}/illustrations/`, { method: 'POST', body: { prompt, style } }),
+    illustration: (illustrationId) => apiRequest(`/assistant/illustrations/${illustrationId}/`),
     socketPath: (sessionId) => `/ws/assistant/sessions/${encodeURIComponent(sessionId)}/`,
 };

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, CirclePlay, Play } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ArrowLeft, ArrowRight, Check, CirclePlay, Play, Sparkles, Loader2, HelpCircle, FileText, Music, BookOpen } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '../../../layouts/AppShell';
@@ -8,7 +8,11 @@ import { ErrorState, LoadingState } from '../../../components/ui/States';
 import { coursesApi } from '../../../api/courses.api';
 import { materialsApi } from '../../../api/materials.api';
 import { analyticsApi } from '../../../api/analytics.api';
+import { quizzesApi } from '../../../api/quizzes.api';
 import { isBackendApiEnabled } from '../../../api/client';
+import { EngagementTracker } from '../../../components/ui/EngagementTracker';
+import { PDFViewer } from '../../../components/ui/PDFViewer';
+import { EnhancedAudioPlayer } from '../../../components/ui/EnhancedAudioPlayer';
 
 const demoCourse = {
   id: 'ai-101',
@@ -19,12 +23,18 @@ const demoCourse = {
   progress: 68,
 };
 const demoMaterials = [
-  { id: 'chapter-1', title: 'Foundations', status: 'completed', kind: 'document' },
-  { id: 'chapter-4', title: 'Backpropagation', status: 'processing', kind: 'audio' },
+  { id: 'chapter-1', title: 'Foundations', status: 'completed', kind: 'document', file: '/media/foundations.pdf' },
+  { id: 'chapter-4', title: 'Backpropagation', status: 'completed', kind: 'audio', file: '/media/backpropagation.mp3' },
 ];
+const demoTranscript = '00:00 Welcome to this lesson on neural networks.\n02:18 We begin with the core idea of a prediction compared to an expected result.\n06:42 The error travels backward through each layer, updating the weights.';
+const demoSummary = 'Neural networks learn by comparing predictions with expected results. The error is propagated backward through the layers, and the weights are updated to reduce that error over many iterations.';
 
 function recordsFrom(response) {
   return Array.isArray(response) ? response : response?.results || [];
+}
+
+function materialUrl(material) {
+  return material?.file || material?.file_url || material?.url || material?.src || '';
 }
 
 export function CourseDetailPage({ player = false }) {
@@ -33,6 +43,13 @@ export function CourseDetailPage({ player = false }) {
   const [selectedMaterial, setSelectedMaterial] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [generatingQuiz, setGeneratingQuiz] = useState(false);
+  const [quizGenerationError, setQuizGenerationError] = useState('');
+  const [quizGenerationSuccess, setQuizGenerationSuccess] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [summary, setSummary] = useState('');
+  const [contentLoading, setContentLoading] = useState(false);
+  const [contentError, setContentError] = useState('');
   const courseQuery = useQuery({
     queryKey: ['content', 'course', id],
     queryFn: () => coursesApi.detail(id),
@@ -47,6 +64,27 @@ export function CourseDetailPage({ player = false }) {
   const materials = isBackendApiEnabled ? recordsFrom(materialsQuery.data) : demoMaterials;
   const selected = materials.find(material => material.id === selectedMaterial) || materials.find(material => material.status === 'completed') || materials[0];
   const progress = Number(course?.progress?.percentage ?? course?.progress?.completion_percentage ?? course?.progress ?? (isBackendApiEnabled ? 0 : 68));
+
+  useEffect(() => {
+    if (!selected) {
+      setTranscript('');
+      setSummary('');
+      return;
+    }
+    if (!isBackendApiEnabled) {
+      setTranscript(selected.kind === 'audio' ? demoTranscript : '');
+      setSummary(demoSummary);
+      return;
+    }
+    let active = true;
+    setContentLoading(true);
+    setContentError('');
+    const requests = [];
+    if (selected.kind === 'audio') requests.push(materialsApi.transcription(selected.id).then(result => { if (active) setTranscript(result.text || ''); }).catch(() => { if (active) setContentError('Could not load the transcript.'); }));
+    if (selected.status === 'completed') requests.push(materialsApi.summary(selected.id).then(result => { if (active) setSummary(result.text || ''); }).catch(() => { if (active) setContentError('Could not load the summary.'); }));
+    Promise.allSettled(requests).finally(() => { if (active) setContentLoading(false); });
+    return () => { active = false; };
+  }, [selected?.id, selected?.kind, selected?.status, isBackendApiEnabled]);
 
   if (isBackendApiEnabled && (courseQuery.isLoading || materialsQuery.isLoading)) return <AppShell><PageHeader eyebrow="Course workspace" title="Loading course"/><LoadingState label="Loading course content"/></AppShell>;
   if (isBackendApiEnabled && (courseQuery.isError || materialsQuery.isError || !course)) return <AppShell><PageHeader eyebrow="Course workspace" title="This course could not be opened."/><ErrorState message="Course details or materials are unavailable." action={<Button onClick={() => { void courseQuery.refetch(); void materialsQuery.refetch(); }}>Retry</Button>}/></AppShell>;
@@ -80,5 +118,176 @@ export function CourseDetailPage({ player = false }) {
     }
   };
 
-  return <AppShell><PageHeader eyebrow="Course workspace" title={course.title || 'Course'} description={course.description || 'Build knowledge through course materials and practice.'} action={<Link className="button" to={player ? `/student/courses/${id}` : `/student/courses/${id}/player`}>{player ? <><ArrowLeft size={15}/> Course overview</> : <><Play size={15}/> Continue lesson</>}</Link>}/><section className="chart-card detail-table"><span className="eyebrow">{course.level || 'Course'} · {materials.length} materials</span><h2>{player ? selected?.title || 'Your next lesson' : 'A guided path through the fundamentals'}</h2><p className="quiz-helper">{player ? 'Follow the lesson, pause when you need to, and check your understanding before moving on.' : 'Review course materials, then continue with the next available lesson.'}</p><ProgressBar value={progress}/>{error && <p className="upload-error" role="alert">{error}</p>}{player ? <><div className="transcript">{materials.map(material => <button type="button" key={material.id} className="course-material-next" onClick={() => setSelectedMaterial(material.id)}><span><strong>{material.title || material.file_name}</strong><small>{material.kind} · {material.status}</small></span>{selected?.id === material.id ? <CirclePlay size={16}/> : <ArrowRight size={16}/>}</button>)}</div>{isBackendApiEnabled && <div className="course-manager-actions">{session ? <Button onClick={() => void finishLearning()} disabled={busy}><Check size={15}/>{busy ? 'Saving…' : 'Complete session'}</Button> : <Button onClick={() => void beginLearning()} disabled={busy || !selected}><CirclePlay size={15}/>{busy ? 'Starting…' : 'Start learning session'}</Button>}{session && <span role="status">Learning session active · progress events are being tracked</span>}</div>}{!isBackendApiEnabled && <div className="transcript"><p><strong>01:12</strong> A prediction is compared with the expected result.</p><p><strong>03:48</strong> The error travels backward through the network.</p><p><strong>06:42</strong> Each weight receives a small corrective update.</p></div>}</> : <div className="list-grid">{materials.slice(0, 3).map((material, index) => <article className="list-card" key={material.id}><div className="list-card-icon purple"><Check size={18}/></div><div><span className="eyebrow">{material.status || (index ? 'UP NEXT' : 'MATERIAL')}</span><h3>{material.title || material.file_name}</h3><p>{material.kind === 'audio' ? 'Listen to the course recording.' : 'Review this course source.'}</p></div></article>)}</div>}{!materials.length && <p className="state-panel">No course materials have been published yet.</p>}</section></AppShell>;
+  const generatePracticeQuiz = async () => {
+    if (!selected) {
+      setQuizGenerationError('Select a course material first to generate a quiz from it.');
+      return;
+    }
+    if (!isBackendApiEnabled) {
+      setQuizGenerationError('Quiz generation requires backend connection. Enable API mode to use this feature.');
+      return;
+    }
+    setGeneratingQuiz(true);
+    setQuizGenerationError('');
+    setQuizGenerationSuccess(false);
+    try {
+      const sourceText = `${selected.title}. ${selected.kind === 'audio' ? 'Audio lecture transcript' : 'Course document content'}. This material covers key concepts for student practice.`;
+      const result = await quizzesApi.generate({
+        course_id: id,
+        source_text: sourceText,
+        kind: 'quiz',
+        question_count: 5,
+        difficulty: 'medium',
+      });
+      const generationId = result.id;
+      if (!generationId) throw new Error('No generation ID returned');
+      let generation = result;
+      for (let attempt = 0; generation.status && ['queued', 'processing'].includes(generation.status) && attempt < 30; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        generation = await quizzesApi.generation(generationId);
+      }
+      if (generation.status === 'failed') throw new Error(generation.error_message || 'Quiz generation failed');
+      const draftQuestions = generation.questions || generation.result?.questions || [];
+      if (!draftQuestions.length) throw new Error('No questions generated');
+      const payload = {
+        course_id: id,
+        title: `Practice: ${selected.title}`,
+        difficulty: 'medium',
+        status: 'published',
+        questions: draftQuestions.map(q => ({
+          prompt: q.prompt || q.text || q.question || '',
+          explanation: q.explanation || '',
+          choices: (q.choices || q.options || []).map((choice, idx) => ({
+            text: typeof choice === 'string' ? choice : choice.text || choice.label || '',
+            is_correct: idx === (q.correct_index ?? q.choices?.findIndex(c => c.is_correct) ?? 0),
+          })),
+        })),
+      };
+      await quizzesApi.create(payload);
+      setQuizGenerationSuccess(true);
+      setTimeout(() => setQuizGenerationSuccess(false), 3000);
+    } catch (cause) {
+      setQuizGenerationError(cause.message || 'Could not generate practice quiz. Please try again.');
+    } finally {
+      setGeneratingQuiz(false);
+    }
+  };
+
+  const renderMaterialViewer = () => {
+    if (!selected) return <p className="state-panel">Select a material to begin studying.</p>;
+    if (contentLoading) return <LoadingState label="Loading material content…" />;
+    const src = materialUrl(selected);
+    if (selected.kind === 'audio') {
+      return (
+        <div className="material-study">
+          <div className="study-header">
+            <span className="eyebrow"><Music size={14} /> Audio lecture</span>
+            <h3>{selected.title || selected.file_name}</h3>
+          </div>
+          {src ? (
+            <EnhancedAudioPlayer src={src} transcript={transcript || null} onTranscriptClick={() => {}} />
+          ) : (
+            <p className="state-panel">Audio file is not available for this material yet.</p>
+          )}
+          {summary && (
+            <div className="study-summary">
+              <span className="eyebrow"><BookOpen size={14} /> AI Summary</span>
+              <p>{summary}</p>
+            </div>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div className="material-study">
+        <div className="study-header">
+          <span className="eyebrow"><FileText size={14} /> Course document</span>
+          <h3>{selected.title || selected.file_name}</h3>
+        </div>
+        {src ? (
+          <PDFViewer src={src} transcript={transcript || null} summary={summary || null} />
+        ) : (
+          <p className="state-panel">Document file is not available for this material yet.</p>
+        )}
+        {summary && (
+          <div className="study-summary">
+            <span className="eyebrow"><BookOpen size={14} /> AI Summary</span>
+            <p>{summary}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <AppShell>
+      <PageHeader eyebrow="Course workspace" title={course.title || 'Course'} description={course.description || 'Build knowledge through course materials and practice.'} action={<Link className="button" to={player ? `/student/courses/${id}` : `/student/courses/${id}/player`}>{player ? <><ArrowLeft size={15} /> Course overview</> : <><Play size={15} /> Continue lesson</>}</Link>} />
+      <section className="chart-card detail-table">
+        <span className="eyebrow">{course.level || 'Course'} · {materials.length} materials</span>
+        <h2>{player ? selected?.title || 'Your next lesson' : 'A guided path through the fundamentals'}</h2>
+        <p className="quiz-helper">{player ? 'Follow the lesson, pause when you need to, and check your understanding before moving on.' : 'Review course materials, then continue with the next available lesson.'}</p>
+        <ProgressBar value={progress} />
+        {error && <p className="upload-error" role="alert">{error}</p>}
+        {player ? (
+          <>
+            <div className="transcript">{materials.map(material => <button type="button" key={material.id} className="course-material-next" onClick={() => setSelectedMaterial(material.id)}><span><strong>{material.title || material.file_name}</strong><small>{material.kind} · {material.status}</small></span>{selected?.id === material.id ? <CirclePlay size={16} /> : <ArrowRight size={16} />}</button>)}</div>
+            {contentError && <p className="upload-error" role="alert">{contentError}</p>}
+            {renderMaterialViewer()}
+            {isBackendApiEnabled && (
+              <div className="course-manager-actions">
+                {session ? (
+                  <Button onClick={() => void finishLearning()} disabled={busy}><Check size={15} />{busy ? 'Saving…' : 'Complete session'}</Button>
+                ) : (
+                  <Button onClick={() => void beginLearning()} disabled={busy || !selected}><CirclePlay size={15} />{busy ? 'Starting…' : 'Start learning session'}</Button>
+                )}
+                {session && <span role="status">Learning session active · progress events are being tracked</span>}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="course-materials-list">
+              {materials.map(material => (
+                <button type="button" key={material.id} className={`course-material-item ${selected?.id === material.id ? 'selected' : ''}`} onClick={() => setSelectedMaterial(material.id)}>
+                  <span className="material-icon">{material.kind === 'audio' ? '🎧' : '📄'}</span>
+                  <span className="material-info">
+                    <strong>{material.title || material.file_name}</strong>
+                    <small>{material.kind} · {material.status}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+            {isBackendApiEnabled && (
+              <div className="course-student-actions">
+                <Button onClick={() => void beginLearning()} disabled={busy || !selected}><CirclePlay size={15} />{busy ? 'Starting…' : 'Start learning session'}</Button>
+                <Button variant="secondary" onClick={() => void generatePracticeQuiz()} disabled={generatingQuiz || !selected || !isBackendApiEnabled}>
+                  <Sparkles size={15} />{generatingQuiz ? <Loader2 size={14} className="spin" /> : 'Generate Practice Quiz'}
+                </Button>
+                {quizGenerationError && <p className="quiz-gen-error" role="alert">{quizGenerationError}</p>}
+                {quizGenerationSuccess && <p className="quiz-gen-success" role="status"><HelpCircle size={14} /> Practice quiz created! Check the Quizzes page.</p>}
+              </div>
+            )}
+          </>
+        )}
+      </section>
+      {session && isBackendApiEnabled && !player && (
+        <EngagementTracker
+          sessionId={session.id}
+          onEngagementUpdate={async (sid, engagement) => {
+            await analyticsApi.recordActivity({
+              session_id: sid,
+              activity_type: 'engagement_check',
+              engagement_score: engagement.score,
+              engagement_present: engagement.present,
+              engagement_attentive: engagement.attentive,
+              engagement_emotions: engagement.emotions,
+              engagement_top_emotion: engagement.topEmotion,
+            });
+          }}
+          interval={30000}
+          className="floating-engagement"
+        />
+      )}
+    </AppShell>
+  );
 }

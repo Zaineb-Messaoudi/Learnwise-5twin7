@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight, MessageCircle, MoreHorizontal, Sparkles, Zap } from 'lucide-react';
+import { ArrowRight, MessageCircle, MoreHorizontal, Sparkles, Zap, Image, Loader2 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { AppShell } from '../../../layouts/AppShell';
 import { PageHeader } from '../../../components/shared/Primitives';
@@ -37,6 +37,7 @@ export function AssistantPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const seenAssistantIds = useRef(new Set());
+  const [generatingIllustration, setGeneratingIllustration] = useState(null);
   const sessionQuery = useQuery({
     queryKey: ['assistant', 'active-session', requestedSessionId],
     queryFn: async () => {
@@ -115,6 +116,30 @@ export function AssistantPage() {
       setMessages([]);
     } catch {             setError('Could not create a new conversation. Please try again.'); }
   };
+
+  const generateIllustration = async (messageId, prompt) => {
+    if (!sessionId) return;
+    setGeneratingIllustration(messageId);
+    setError('');
+    try {
+      const response = await assistantApi.generateIllustration(sessionId, prompt, 'educational');
+      const illustration = response.illustration || response;
+      setMessages(current => current.map(msg => {
+        if (msg.id !== messageId) return msg;
+        return { ...msg, illustrations: [...(msg.illustrations || []), {
+          id: illustration.id,
+          image_url: illustration.image_url || illustration.url,
+          alt_text: illustration.alt_text || prompt,
+          prompt: prompt,
+          caption: illustration.caption || prompt
+        }] };
+      }));
+    } catch (cause) {
+      setError(cause.message || 'Could not generate illustration. Try again.');
+    } finally {
+      setGeneratingIllustration(null);
+    }
+  };
   const send = async value => {
     const question = (value || input).trim();
     if (!question || sending) return;
@@ -161,7 +186,7 @@ export function AssistantPage() {
         <div className="chat-top"><div className="chat-course"><div className="tiny-course-icon">✦</div><div><b>AI &amp; Machine Learning</b><span>Course-grounded conversation</span></div></div>{isBackendApiEnabled && <span className={`assistant-connection ${socket.status}`}>{socket.status}</span>}<button type="button" className="icon-button" aria-label="Conversation options"><MoreHorizontal size={18} /></button></div>
         {error && <p className="assistant-inline-error" role="alert">{error}{sessionQuery.isError && <button type="button" onClick={() => void sessionQuery.refetch()}> Retry</button>}</p>}
         <div className="chat-messages" aria-live="polite">
-          {loading ? <p role="status">Loading your conversations…</p> : messages.map((message, index) => <div key={`${message.from}-${message.id || index}`} className={`chat-message ${message.from}`}><div className="chat-avatar" aria-hidden="true">{message.from === 'ai' ? <Sparkles size={15} /> : 'SC'}</div><div><span className="message-author">{message.from === 'ai' ? 'Learnwise AI' : 'You'}</span><p>{message.text}</p>{message.explanation && <p className="assistant-explanation">{message.explanation}</p>}{message.illustrations?.map((illustration, illustrationIndex) => <figure className="assistant-illustration" key={illustration.id || illustrationIndex}><img src={illustration.image_url || illustration.url} alt={illustration.alt_text || illustration.prompt || 'AI-generated course illustration'} loading="lazy"/>{(illustration.caption || illustration.prompt) && <figcaption>{illustration.caption || illustration.prompt}</figcaption>}</figure>)}{message.from === 'ai' && index > 0 && <div className="ai-answer"><b>{isBackendApiEnabled ? 'Assistant response' : 'Sample course answer'}</b>{(message.citations?.length ? message.citations : message.source ? [{ title: message.source }] : []).map((citation, citationIndex) => <div className="answer-source" key={citation.id || citationIndex}><span>Source: {citation.title}{citation.page ? ` · page ${citation.page}` : ''}{citation.timestamp ? ` · ${citation.timestamp}` : ''}</span><ArrowRight size={13} /></div>)}</div>}</div></div>)}
+          {loading ? <p role="status">Loading your conversations…</p> : messages.map((message, index) => <div key={`${message.from}-${message.id || index}`} className={`chat-message ${message.from}`}><div className="chat-avatar" aria-hidden="true">{message.from === 'ai' ? <Sparkles size={15} /> : 'SC'}</div><div><span className="message-author">{message.from === 'ai' ? 'Learnwise AI' : 'You'}</span><p>{message.text}</p>{message.explanation && <p className="assistant-explanation">{message.explanation}</p>}{message.illustrations?.map((illustration, illustrationIndex) => <figure className="assistant-illustration" key={illustration.id || illustrationIndex}><img src={illustration.image_url || illustration.url} alt={illustration.alt_text || illustration.prompt || 'AI-generated course illustration'} loading="lazy"/>{(illustration.caption || illustration.prompt) && <figcaption>{illustration.caption || illustration.prompt}</figcaption>}</figure>)}{message.from === 'ai' && index > 0 && <div className="ai-answer"><b>{isBackendApiEnabled ? 'Assistant response' : 'Sample course answer'}</b>{(message.citations?.length ? message.citations : message.source ? [{ title: message.source }] : []).map((citation, citationIndex) => <div className="answer-source" key={citation.id || citationIndex}><span>Source: {citation.title}{citation.page ? ` · page ${citation.page}` : ''}{citation.timestamp ? ` · ${citation.timestamp}` : ''}</span><ArrowRight size={13} /></div>)}</div>}{message.from === 'ai' && isBackendApiEnabled && <div className="message-actions"><button type="button" className="icon-button" onClick={() => void generateIllustration(message.id, message.text)} disabled={generatingIllustration === message.id || sending} aria-label="Generate illustration for this answer"><Image size={16} /><span className="button-label">{generatingIllustration === message.id ? <Loader2 size={14} className="spin" /> : 'Illustrate'}</span></button></div>}</div></div>)}
           {sending && <p className="assistant-pending" role="status"><Sparkles size={15}/> Learnwise is preparing a response…</p>}
         </div>
         <AssistantComposer value={input} onChange={setInput} onSend={() => void send()} disabled={loading || sending} />

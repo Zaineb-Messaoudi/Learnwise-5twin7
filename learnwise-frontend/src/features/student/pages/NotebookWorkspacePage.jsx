@@ -1,264 +1,242 @@
-import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Check, MoreHorizontal, Share2, Sparkles } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, BookOpen, FileText, HelpCircle, ListChecks, Music, Link as LinkIcon, Send, Sparkles, Loader2, AlertCircle, Quote, Check } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { AppShell } from '../../../layouts/AppShell';
 import { Button, PageHeader } from '../../../components/shared/Primitives';
 import { ErrorState, LoadingState } from '../../../components/ui/States';
-import { assistantApi } from '../../../api/assistant.api';
 import { coursesApi } from '../../../api/courses.api';
 import { materialsApi } from '../../../api/materials.api';
+import { assistantApi } from '../../../api/assistant.api';
 import { quizzesApi } from '../../../api/quizzes.api';
 import { isBackendApiEnabled } from '../../../api/client';
-import { getNotebooks } from '../data/notebookStore';
-import { NotebookChat } from '../components/notebook/NotebookChat';
-import { SourceList } from '../components/notebook/SourceList';
-import { StudioPanel } from '../components/notebook/StudioPanel';
-import '../notebook.css';
 
-const recordsFrom = response => Array.isArray(response) ? response : response?.results || [];
-const roleOf = message => message.role === 'user' ? 'user' : 'assistant';
-const toolPrompts = {
-  audio_overview: ['Audio overview script', 'Write a conversational two-host audio overview script that explains the key ideas in the selected sources. Include a short introduction, discussion, and conclusion.'],
-  study_guide: ['Study guide', 'Create a structured study guide with the main concepts, clear explanations, key terms, and review questions.'],
-  mind_map: ['Mind map', 'Create a text-based mind map showing the central topic, branches, and relationships between concepts.'],
-  flashcards: ['Flashcards', 'Create concise question-and-answer flashcards for active recall. Number each card and separate its front and back clearly.'],
-  briefing_doc: ['Briefing document', 'Write a concise briefing document with the central thesis, essential evidence, and key takeaways.'],
-};
+const demoCourse = { id: 'course-7', title: 'Neural Networks', description: 'Course overview' };
+const demoMaterials = [{ id: 'material-4', title: 'Backpropagation.pdf', status: 'completed', kind: 'document' }];
+
+function recordsFrom(response) {
+  return Array.isArray(response) ? response : response?.results || [];
+}
 
 export function NotebookWorkspacePage() {
-  const { notebookId } = useParams();
-  const localNotebook = getNotebooks().find(item => item.id === notebookId);
-  const [notebook, setNotebook] = useState(localNotebook || null);
-  const [sources, setSources] = useState(() => localNotebook?.sourceItems || []);
-  const [selectedSources, setSelectedSources] = useState(() => localNotebook?.sourceItems || []);
-  const [messages, setMessages] = useState([]);
+  const { id = 'course-7' } = useParams();
+  const navigate = useNavigate();
+  const [course, setCourse] = useState(null);
+  const [materials, setMaterials] = useState([]);
   const [sessionId, setSessionId] = useState(null);
-  const [artifacts, setArtifacts] = useState([]);
-  const [loading, setLoading] = useState(isBackendApiEnabled);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [creatingArtifact, setCreatingArtifact] = useState(false);
   const [error, setError] = useState('');
-  const [artifactError, setArtifactError] = useState('');
-  const [shared, setShared] = useState(false);
+  const [loading, setLoading] = useState(isBackendApiEnabled);
+  const [quizDraft, setQuizDraft] = useState(null);
+  const [generatingQuiz, setGeneratingQuiz] = useState(false);
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState([]);
+  const sessionPromiseRef = useRef(null);
 
   useEffect(() => {
-    if (!isBackendApiEnabled || !notebookId) return undefined;
+    if (!isBackendApiEnabled) {
+      setCourse(demoCourse);
+      setMaterials(demoMaterials);
+      setSelectedMaterialIds(demoMaterials.map(m => m.id));
+      setLoading(false);
+      return;
+    }
     let active = true;
     setLoading(true);
-    setError('');
-    setNotebook(null);
-    Promise.all([
-      coursesApi.detail(notebookId),
-      materialsApi.list(notebookId),
-      assistantApi.sessions(),
-    ]).then(async ([course, materialsResponse, sessionsResponse]) => {
-      const sessions = recordsFrom(sessionsResponse);
-      const session = sessions.find(item => String(item.course_id || item.course?.id || item.course) === String(notebookId))
-        || await assistantApi.createSession({ title: course.title, course_id: notebookId });
-      const conversation = recordsFrom(await assistantApi.messages(session.id));
-      if (!active) return;
-      const materialRecords = recordsFrom(materialsResponse);
-      setNotebook({
-        id: course.id,
-        title: course.title,
-        subject: course.level || 'Course notebook',
-        description: course.description || 'Explore this course through its sources.',
-      });
-      setSources(materialRecords);
-      setSelectedSources(materialRecords.filter(item => !item.status || item.status === 'completed').map(item => item.id));
-      setSessionId(session.id);
-      setMessages(conversation);
-      setLoading(false);
-    }).catch(() => {
-      if (!active) return;
-      setError('Could not load this course notebook. Check the course, source, and assistant services, then retry.');
-      setLoading(false);
-    });
+    Promise.all([coursesApi.detail(id), materialsApi.list(id)])
+      .then(([courseResponse, materialsResponse]) => {
+        if (!active) return null;
+        const loadedCourse = courseResponse;
+        const loadedMaterials = recordsFrom(materialsResponse);
+        setCourse(loadedCourse);
+        setMaterials(loadedMaterials);
+        setSelectedMaterialIds(loadedMaterials.map(m => m.id));
+        const sessionPromise = assistantApi.createSession({ title: loadedCourse?.title || 'Notebook', course_id: id });
+        sessionPromiseRef.current = sessionPromise;
+        return sessionPromise;
+      })
+      .then(session => {
+        if (!active || !session) return;
+        setSessionId(session.id);
+      })
+      .catch(() => { if (active) setError('Could not load this notebook. Retry.'); })
+      .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [notebookId]);
+  }, [id]);
 
-  useEffect(() => {
-    const pendingMaterials = sources.filter(source => typeof source !== 'string' && ['queued', 'processing'].includes(source.status));
-    if (!isBackendApiEnabled || !pendingMaterials.length) return undefined;
-    let active = true;
-    let timer;
-    const refresh = async () => {
-      try {
-        const updates = await Promise.all(pendingMaterials.map(material => materialsApi.processingStatus(material.id)));
-        if (!active) return;
-        const statusById = new Map(pendingMaterials.map((material, index) => [material.id, updates[index]]));
-        setSources(current => current.map(source => {
-          const update = statusById.get(source.id);
-          return update ? { ...source, ...update, status: update.status || source.status } : source;
-        }));
-        const completedIds = pendingMaterials.filter((material, index) => updates[index].status === 'completed').map(material => material.id);
-        if (completedIds.length) setSelectedSources(current => [...new Set([...current, ...completedIds])]);
-        const failed = updates.find(update => update.status === 'failed');
-        if (failed) setError(failed.error_message || 'A source could not be processed. Remove it or retry the upload.');
-        else if (updates.some(update => ['queued', 'processing'].includes(update.status))) timer = window.setTimeout(refresh, 2000);
-      } catch {
-        if (active) {
-          setError('Could not refresh source processing status. The source list will retry shortly.');
-          timer = window.setTimeout(refresh, 5000);
-        }
-      }
-    };
-    timer = window.setTimeout(refresh, 1200);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [sources]);
+  const materialIds = useMemo(() => selectedMaterialIds.length ? selectedMaterialIds : materials.map(m => m.id), [selectedMaterialIds, materials]);
 
-  if (loading) return <AppShell><PageHeader eyebrow="Student workspace" title="Loading notebook"/><LoadingState label="Loading course sources and conversation"/></AppShell>;
-  if (error && !notebook) return <AppShell><PageHeader eyebrow="Student workspace" title="Notebook unavailable"/><ErrorState message={error} action={<Button onClick={() => window.location.reload()}>Retry</Button>}/></AppShell>;
-  if (!notebook) return <AppShell><section className="notebook-empty"><h1>Notebook not found</h1><p>This notebook may have been removed or belongs to another workspace.</p><Link className="button" to="/student/notebooks">Back to notebooks</Link></section></AppShell>;
-
-  const backendSourceIds = isBackendApiEnabled ? selectedSources : [];
-  const toggleSource = sourceId => setSelectedSources(current => current.includes(sourceId) ? current.filter(item => item !== sourceId) : [...current, sourceId]);
-  const selectAll = selected => setSelectedSources(selected
-    ? sources.filter(source => typeof source === 'string' || !source.status || source.status === 'completed').map(source => typeof source === 'string' ? source : source.id)
-    : []);
-  const openSources = citation => {
-    const materialId = citation?.material_id || citation?.material || citation?.id;
-    const sourceRow = materialId ? document.getElementById(`source-${materialId}`) : null;
-    (sourceRow || document.getElementById('sources-heading'))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
-
-  const askAssistant = async prompt => {
-    if (!isBackendApiEnabled || !sessionId) {
-      setError('A course-scoped assistant session is not available yet.');
-      return null;
-    }
-    if (!backendSourceIds.length) {
-      setError('Select at least one processed source before asking a question.');
-      return null;
-    }
+  const ask = async (question) => {
+    const text = (question || input).trim();
+    if (!text || sending) return;
     setError('');
+    setInput('');
+    if (!isBackendApiEnabled) {
+      setMessages(current => [...current, { from: 'user', text }, { from: 'ai', text: 'Gradient descent updates model weights.', citations: [{ id: 'material-4', title: 'Backpropagation.pdf', page: 4 }] }]);
+      return;
+    }
     setSending(true);
-    const knownAssistantIds = new Set(messages.filter(message => roleOf(message) === 'assistant').map(message => message.id));
+    setMessages(current => [...current, { from: 'user', text }]);
     try {
-      const response = await assistantApi.ask(sessionId, {
-        content: prompt,
-        course_id: notebook.id,
-        material_ids: backendSourceIds,
-      });
-      let responseMessage = response?.assistant_message || response?.message
-        || (response?.role === 'assistant' ? response : null);
-      let conversation = recordsFrom(await assistantApi.messages(sessionId));
-      for (let attempt = 0; !responseMessage?.content && attempt < 15; attempt += 1) {
-        responseMessage = conversation.find(message => roleOf(message) === 'assistant' && !knownAssistantIds.has(message.id));
-        if (responseMessage?.content) break;
-        await new Promise(resolve => window.setTimeout(resolve, 1000));
-        conversation = recordsFrom(await assistantApi.messages(sessionId));
+      let activeSessionId = sessionId;
+      if (!activeSessionId && sessionPromiseRef.current) {
+        const session = await sessionPromiseRef.current;
+        activeSessionId = session?.id;
+        setSessionId(activeSessionId);
       }
-      if (!responseMessage?.content) throw new Error('Assistant response was not completed.');
-      const hasQuestion = conversation.some(message => roleOf(message) === 'user' && message.content === prompt);
-      const currentConversation = hasQuestion
-        ? conversation.some(message => message.id === responseMessage.id) ? conversation : [...conversation, responseMessage]
-        : [...conversation, { id: `question-${Date.now()}`, role: 'user', content: prompt }, responseMessage];
-      setMessages(currentConversation);
-      return responseMessage;
-    } catch {
-      setError('The assistant could not complete this response. Please retry your question.');
-      return null;
+      if (!activeSessionId) {
+        throw new Error('The assistant session is not ready yet. Wait for the notebook to load.');
+      }
+      const response = await assistantApi.ask(activeSessionId, { content: text, course_id: id, material_ids: materialIds });
+      const message = response.assistant_message || response;
+      setMessages(current => [...current, { from: 'ai', text: message.content || '', citations: message.citations || [] }]);
+    } catch (cause) {
+      setError(cause.message || 'Could not get an answer. Try again.');
+      setMessages(current => current.slice(0, -1));
     } finally {
       setSending(false);
     }
   };
 
-  const createFromSources = async kind => {
-    if (!backendSourceIds.length) {
-      setArtifactError('Select at least one processed source first.');
-      return;
-    }
-    setArtifactError('');
-    setCreatingArtifact(true);
-    try {
-      if (kind === 'quiz') {
-        let generation = await quizzesApi.generate({
-          course_id: notebook.id,
-          material_ids: backendSourceIds,
-          kind: 'quiz',
-          question_count: 5,
-          difficulty: 'medium',
-        });
-        for (let attempt = 0; generation.id && !['completed', 'failed'].includes(generation.status) && attempt < 30; attempt += 1) {
-          await new Promise(resolve => window.setTimeout(resolve, 1000));
-          generation = await quizzesApi.generation(generation.id);
-        }
-        if (generation.status !== 'completed') throw new Error('Quiz generation did not complete.');
-        const result = generation.result || generation.quiz || generation;
-        const questions = result.questions || [];
-        setArtifacts(current => [{
-          id: generation.id,
-          title: result.title || 'Generated quiz',
-          status: `${questions.length} questions · review before use`,
-          content: questions.map((question, index) => `${index + 1}. ${question.prompt || question.text || ''}`).filter(Boolean).join('\n'),
-        }, ...current]);
-        return;
-      }
-      const [title, instruction] = toolPrompts[kind] || [];
-      if (!title || !instruction) throw new Error('This study tool is unavailable.');
-      const response = await askAssistant(`${instruction}\n\nUse only my selected course sources.`);
-      if (!response) throw new Error('The requested study material was not generated.');
-      setArtifacts(current => [{
-        id: response.id || `${kind}-${Date.now()}`,
-        title,
-        status: 'Generated from selected sources',
-        content: response.content,
-      }, ...current]);
-    } catch {
-      setArtifactError('Could not create this study material from the selected sources. Please retry.');
-    } finally {
-      setCreatingArtifact(false);
-    }
-  };
-
-  const createSession = async () => {
+  const generateQuiz = async () => {
     if (!isBackendApiEnabled) {
-      setMessages([]);
+      setQuizDraft({ title: 'Generated quiz', questions: [{ prompt: 'What is gradient descent?' }] });
       return;
     }
-    try {
-      const session = await assistantApi.createSession({ title: notebook.title, course_id: notebook.id });
-      setSessionId(session.id);
-      setMessages([]);
-      setError('');
-    } catch {
-      setError('Could not start a new conversation for this course.');
-    }
-  };
-
-  const addSource = async file => {
-    if (!file || !isBackendApiEnabled) return;
+    setGeneratingQuiz(true);
     setError('');
     try {
-      const material = await materialsApi.upload(notebook.id, file);
-      setSources(current => [...current, material]);
-      if (material.status === 'completed') setSelectedSources(current => [...current, material.id]);
-    } catch {
-      setError('The source could not be uploaded. Check its file type and size, then retry.');
+      const result = await quizzesApi.generate({
+        course_id: id,
+        material_ids: materialIds,
+        kind: 'quiz',
+        question_count: 5,
+        difficulty: 'medium',
+      });
+      const draft = result.result || result;
+      setQuizDraft(draft);
+    } catch (cause) {
+      setError(cause.message || 'Could not generate a quiz draft.');
+    } finally {
+      setGeneratingQuiz(false);
     }
   };
 
-  const shareNotebook = async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setShared(true);
-      window.setTimeout(() => setShared(false), 1800);
-    } catch {
-      setShared(false);
-    }
+  const toggleMaterial = (materialId) => {
+    setSelectedMaterialIds(current => current.includes(materialId) ? current.filter(m => m !== materialId) : [...current, materialId]);
   };
 
-  return <AppShell><div className="notebook-workspace notebooklm-workspace">
-    <header className="notebook-header">
-      <div className="notebook-heading-copy"><Link className="text-link" to="/student/notebooks"><ArrowLeft size={15}/> Notebooks</Link><span className="eyebrow">{notebook.subject}</span><h1>{notebook.title}<button type="button" className="notebook-title-menu" aria-label="Notebook options"><MoreHorizontal size={17}/></button></h1><p>{notebook.description}</p></div>
-      <div className="notebook-header-actions"><span className="notebook-source-count"><Sparkles size={14}/>{selectedSources.length} sources selected</span><button type="button" className="button button-secondary" onClick={() => void shareNotebook()}><Share2 size={15}/>{shared ? 'Copied' : 'Share'}</button></div>
-    </header>
-    <div className="notebook-workspace-grid">
-      <SourceList sources={sources} selectedSources={selectedSources} onToggle={toggleSource} onSelectAll={selectAll} onAdd={addSource} canUpload={isBackendApiEnabled}/>
-      <NotebookChat notebook={notebook} selectedSources={selectedSources} onSourcesClick={openSources} messages={messages} onAsk={askAssistant} onClear={createSession} sending={sending} error={error}/>
-      <StudioPanel onCreate={createFromSources} artifacts={artifacts} creating={creatingArtifact} error={artifactError}/>
-    </div>
-    <div className="notebook-workspace-footer"><Check size={14}/> {isBackendApiEnabled ? 'Answers are grounded in the selected course materials.' : 'Choose a course to work with its published sources.'}</div>
-  </div></AppShell>;
+  if (loading) return <AppShell><PageHeader eyebrow="Notebook" title="Loading notebook"/><LoadingState label="Loading course materials"/></AppShell>;
+  if (error && !course) return <AppShell><PageHeader eyebrow="Notebook" title="This notebook could not be opened."/><ErrorState message={error} action={<Button onClick={() => window.location.reload()}>Retry</Button>}/></AppShell>;
+
+  return (
+    <AppShell>
+      <PageHeader
+        eyebrow="Notebook"
+        title={course?.title || 'Notebook'}
+        description={course?.description || 'Ask questions grounded in your course materials.'}
+        action={<Button variant="secondary" onClick={() => navigate('/student/courses')}><ArrowLeft size={15} /> Back to courses</Button>}
+      />
+
+      <div className="notebook-workspace">
+        <aside className="sources-panel">
+          <div className="panel-header">
+            <h3>Course materials</h3>
+            <span className="source-count">{materials.length}</span>
+          </div>
+          <div className="sources-list">
+            {materials.map(material => (
+              <div key={material.id} className={`source-item ${selectedMaterialIds.includes(material.id) ? 'selected' : ''}`}>
+                <button type="button" className="source-select" onClick={() => toggleMaterial(material.id)} aria-pressed={selectedMaterialIds.includes(material.id)}>
+                  <span className="source-icon">
+                    {material.kind === 'audio' ? <Music size={16} /> : material.kind === 'link' ? <LinkIcon size={16} /> : <FileText size={16} />}
+                  </span>
+                  <span className="source-info">
+                    <strong>{material.title || material.file_name}</strong>
+                    <small>{material.kind || 'document'} · {material.status}</small>
+                  </span>
+                </button>
+                {selectedMaterialIds.includes(material.id) && <Check size={14} className="text-lime" />}
+              </div>
+            ))}
+          </div>
+          <div className="sources-filter-note">
+            <Check size={14} /> {materialIds.length} source{materialIds.length !== 1 ? 's' : ''} selected
+          </div>
+        </aside>
+
+        <main className="notebook-main">
+          <nav className="notebook-tabs">
+            <button type="button" className="notebook-tab active"><Send size={16} /> Chat</button>
+            <button type="button" className="notebook-tab" onClick={() => void generateQuiz()}><ListChecks size={16} /> Quiz</button>
+          </nav>
+
+          {error && <p className="notebook-error" role="alert"><AlertCircle size={15} /> {error}</p>}
+
+          <div className="chat-panel">
+            <div className="chat-messages" aria-live="polite">
+              {messages.length === 0 ? (
+                <div className="chat-empty">
+                  <Sparkles size={32} />
+                  <h3>Ask anything about {course?.title || 'this course'}</h3>
+                  <p>Your answers are grounded in the selected course materials.</p>
+                  <div className="chat-suggestions">
+                    <button className="suggestion-chip" onClick={() => void ask('What are the key ideas?')}>What are the key ideas?</button>
+                    <button className="suggestion-chip" onClick={() => void ask('Explain the main concepts simply')}>Explain simply</button>
+                    <button className="suggestion-chip" onClick={() => void ask('Test yourself on this material')}>Test yourself</button>
+                  </div>
+                </div>
+              ) : (
+                messages.map((msg, i) => (
+                  <div key={i} className={`chat-message ${msg.from}`}>
+                    <div className="message-avatar">{msg.from === 'ai' ? <Sparkles size={14} /> : 'You'}</div>
+                    <div className="message-body">
+                      <p>{msg.text}</p>
+                      {msg.citations?.length > 0 && (
+                        <div className="citations">
+                          <span className="citations-label"><Quote size={12} /> Sources</span>
+                          {msg.citations.map((citation, ci) => (
+                            <button key={ci} className="citation" type="button">
+                              <FileText size={12} />
+                              <span>{citation.title || citation.source}{citation.page ? ` · p. ${citation.page}` : ''}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+              {sending && <p className="chat-pending" role="status"><Loader2 size={14} className="spin" /> Thinking…</p>}
+            </div>
+            <div className="chat-composer">
+              <input
+                type="text"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void ask(); } }}
+                placeholder="Ask about your course materials…"
+                disabled={sending}
+              />
+              <Button onClick={() => void ask()} disabled={sending || !input.trim()}><Send size={15} /></Button>
+            </div>
+          </div>
+
+          {quizDraft && (
+            <div className="quiz-draft">
+              <h3><BookOpen size={16} /> {quizDraft.title || 'Generated quiz'}</h3>
+              <ol className="quiz-draft-questions">
+                {(quizDraft.questions || []).map((question, qi) => (
+                  <li key={qi}>{question.prompt || question.text || question.question}</li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {generatingQuiz && <p className="chat-pending" role="status"><Loader2 size={14} className="spin" /> Generating quiz draft…</p>}
+        </main>
+      </div>
+    </AppShell>
+  );
 }
+
+export default NotebookWorkspacePage;
