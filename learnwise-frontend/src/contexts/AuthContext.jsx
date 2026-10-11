@@ -161,6 +161,330 @@ export function AuthProvider({ children }) {
         }
     };
 
+    // 2FA
+    const get2FASetup = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.get2FASetup();
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to load 2FA setup.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const enable2FA = async (payload) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.enable2FA(payload);
+            return { success: true, backupCodes: response.backup_codes };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to enable 2FA.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const disable2FA = async (payload) => {
+        setLoading(true);
+        setError(null);
+        try {
+            await authApi.disable2FA(payload);
+            return { success: true };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to disable 2FA.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Email change
+    const requestEmailChange = async (newEmail) => {
+        setLoading(true);
+        setError(null);
+        try {
+            await authApi.requestEmailChange(newEmail);
+            return { success: true };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to request email change.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const confirmEmailChange = async (token) => {
+        setLoading(true);
+        setError(null);
+        try {
+            await authApi.confirmEmailChange(token);
+            return { success: true };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to confirm email change.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Session management
+    const listSessions = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.listSessions();
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to load sessions.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const revokeSession = async (sessionId) => {
+        setLoading(true);
+        setError(null);
+        try {
+            await authApi.revokeSession(sessionId);
+            return { success: true };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to revoke session.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const revokeAllSessions = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            await authApi.revokeAllSessions();
+            return { success: true };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to revoke sessions.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Avatar
+    const uploadAvatar = async (file) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.uploadAvatar(file);
+            return { success: true, avatar_url: response.avatar_url };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to upload avatar.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const removeAvatar = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            await authApi.removeAvatar();
+            return { success: true };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to remove avatar.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Security events
+    const getSecurityEvents = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.getSecurityEvents();
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to load security events.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Activity logs
+    const getActivityLogs = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.getActivityLogs();
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to load activity logs.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Terms & consent
+    const getTerms = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.getTerms();
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to load terms.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const acceptTerms = async (payload) => {
+        setLoading(true);
+        setError(null);
+        try {
+            await authApi.acceptTerms(payload);
+            return { success: true };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to accept terms.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const acceptPrivacy = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            await authApi.acceptPrivacy();
+            return { success: true };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to accept privacy policy.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Data export
+    const getDataExports = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.getDataExports();
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to load data exports.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const requestDataExport = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.requestDataExport();
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to request data export.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Account deletion
+    const getDeletionRequest = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.getDeletionRequest();
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to load deletion request.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const requestAccountDeletion = async (payload) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.requestAccountDeletion(payload);
+            return { success: true, message: response.detail };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to request account deletion.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const confirmAccountDeletion = async (payload) => {
+        setLoading(true);
+        setError(null);
+        try {
+            await authApi.confirmAccountDeletion(payload);
+            return { success: true };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to confirm account deletion.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const cancelAccountDeletion = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            await authApi.cancelAccountDeletion();
+            return { success: true };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to cancel account deletion.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
         const handleExpired = () => clearSession();
         window.addEventListener('learnwise:auth-expired', handleExpired);
@@ -179,6 +503,27 @@ export function AuthProvider({ children }) {
         verifyEmail,
         resendVerification,
         socialLogin,
+        get2FASetup,
+        enable2FA,
+        disable2FA,
+        requestEmailChange,
+        confirmEmailChange,
+        listSessions,
+        revokeSession,
+        revokeAllSessions,
+        uploadAvatar,
+        removeAvatar,
+        getSecurityEvents,
+        getActivityLogs,
+        getTerms,
+        acceptTerms,
+        acceptPrivacy,
+        getDataExports,
+        requestDataExport,
+        getDeletionRequest,
+        requestAccountDeletion,
+        confirmAccountDeletion,
+        cancelAccountDeletion,
         isAuthenticated: Boolean(user),
         loading,
         error,

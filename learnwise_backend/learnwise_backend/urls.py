@@ -9,9 +9,14 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
+# Import both url pattern sets from accounts
+from accounts.urls import auth_urlpatterns as accounts_auth_urls
+from accounts.urls import urlpatterns as accounts_urls
+
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/v1/accounts/', include('accounts.urls')),
+    path('api/v1/auth/', include((accounts_auth_urls, 'auth'), namespace='auth')),
+    path('api/v1/accounts/', include((accounts_urls, 'accounts'), namespace='accounts')),
     path('api/v1/content/', include('content.urls')),
     path('api/v1/ai/', include('ai_assistant.urls')),
     path('api/v1/assessment/', include('assessment.urls')),
