@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ArrowRight, Check, LockKeyhole, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowRight, Check, LockKeyhole, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '../../../api/auth.api';
 import { isBackendApiEnabled } from '../../../api/client';
@@ -12,19 +12,80 @@ export function AuthPage({ register = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const { login } = useAuth();
+  const { login, socialLogin } = useAuth();
   const [loading, setLoading] = useState('');
   const [error, setError] = useState('');
   const roleParam = searchParams.get('role') === 'teacher' ? 'teacher' : 'student';
   const next = searchParams.get('next') || (register && roleParam === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
 
-  const finishPreviewLogin = provider => {
+  const handleSocialLogin = async (provider) => {
     setLoading(provider);
-    window.setTimeout(() => {
-      login({ id: `preview-${provider}-user`, name: roleParam === 'teacher' ? 'Maya Chen' : 'Sarah Chen', email: `preview-${provider}@learnwise.ai`, role: roleParam });
-      navigate(next, { replace: true });
-    }, 350);
+    setError('');
+    try {
+      if (!isBackendApiEnabled) {
+        setTimeout(() => {
+          login({ id: `preview-${provider}-user`, name: roleParam === 'teacher' ? 'Maya Chen' : 'Sarah Chen', email: `preview-${provider}@learnwise.ai`, role: roleParam });
+          navigate(next, { replace: true });
+        }, 350);
+        return;
+      }
+
+      const clientId = provider === 'google'
+        ? import.meta.env.VITE_GOOGLE_CLIENT_ID
+        : import.meta.env.VITE_FACEBOOK_APP_ID;
+
+      const redirectUri = `${window.location.origin}/auth/social-callback`;
+
+      if (provider === 'google' && clientId) {
+        const scope = 'openid email profile';
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
+        window.location.href = authUrl;
+        return;
+      }
+
+      if (provider === 'facebook' && clientId) {
+        const scope = 'email,public_profile';
+        const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scope)}`;
+        window.location.href = authUrl;
+        return;
+      }
+
+      setError(`${provider} login is not configured. Please contact support.`);
+      setLoading('');
+    } catch (err) {
+      setError(`Failed to start ${provider} login.`);
+      setLoading('');
+    }
   };
+
+  const handleSocialCallback = async () => {
+    const hash = window.location.hash.substring(1);
+    const params = new URLSearchParams(hash);
+    const accessToken = params.get('access_token');
+    const provider = params.get('provider') || new URLSearchParams(window.location.search).get('provider');
+
+    if (accessToken && provider) {
+      setLoading(provider);
+      try {
+        const result = await socialLogin(provider, accessToken, roleParam);
+        if (result.success) {
+          navigate(next, { replace: true });
+        } else {
+          setError(result.error);
+          setLoading('');
+        }
+      } catch (err) {
+        setError('Social login failed. Please try again.');
+        setLoading('');
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (window.location.hash.includes('access_token')) {
+      handleSocialCallback();
+    }
+  }, []);
 
   const submit = async event => {
     event.preventDefault();
@@ -70,6 +131,9 @@ export function AuthPage({ register = false }) {
     }
   };
 
+  const googleConfigured = isBackendApiEnabled && import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const facebookConfigured = isBackendApiEnabled && import.meta.env.VITE_FACEBOOK_APP_ID;
+
   return <main className="auth-screen">
     <section className="auth-visual">
       <div className="auth-visual-top"><Logo dark /></div>
@@ -82,8 +146,40 @@ export function AuthPage({ register = false }) {
         <div className="auth-mobile-brand"><Logo /></div>
         <div className="auth-heading"><span className="auth-kicker">{register ? 'CREATE YOUR ACCOUNT' : 'WELCOME BACK'}</span><h2>{register ? 'Start with one good question.' : 'Good to see you again.'}</h2><p>{register ? 'Build a learning space that follows your curiosity.' : 'Pick up exactly where your learning left off.'}</p></div>
         {location.state?.notice && <p className="form-error" role="status">{location.state.notice}</p>}
-        {!isBackendApiEnabled && <div className="social-login"><button type="button" className="social-button google" onClick={() => finishPreviewLogin('google')} disabled={Boolean(loading)}><strong className="brand-letter google-letter">G</strong><span>{loading === 'google' ? 'Connecting…' : 'Continue with Google'}</span></button><button type="button" className="social-button facebook" onClick={() => finishPreviewLogin('facebook')} disabled={Boolean(loading)}><strong className="brand-letter facebook-letter">f</strong><span>{loading === 'facebook' ? 'Connecting…' : 'Continue with Facebook'}</span></button></div>}
-        <div className="auth-divider"><span>{isBackendApiEnabled ? 'Continue with your Learnwise account' : 'or use your email'}</span></div>
+        <div className="social-login">
+          {googleConfigured && (
+            <button type="button" className="social-button google" onClick={() => handleSocialLogin('google')} disabled={Boolean(loading)}>
+              <svg viewBox="0 0 24 24" width="18" height="18" style={{marginRight: 8}}>
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              <span>{loading === 'google' ? <Loader2 size={16} /> : 'Continue with Google'}</span>
+            </button>
+          )}
+          {facebookConfigured && (
+            <button type="button" className="social-button facebook" onClick={() => handleSocialLogin('facebook')} disabled={Boolean(loading)}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style={{marginRight: 8}}>
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+              </svg>
+              <span>{loading === 'facebook' ? <Loader2 size={16} /> : 'Continue with Facebook'}</span>
+            </button>
+          )}
+          {!googleConfigured && !facebookConfigured && !isBackendApiEnabled && (
+            <>
+              <button type="button" className="social-button google" onClick={() => handleSocialLogin('google')} disabled={Boolean(loading)}>
+                <strong className="brand-letter google-letter">G</strong>
+                <span>{loading === 'google' ? 'Connecting…' : 'Continue with Google'}</span>
+              </button>
+              <button type="button" className="social-button facebook" onClick={() => handleSocialLogin('facebook')} disabled={Boolean(loading)}>
+                <strong className="brand-letter facebook-letter">f</strong>
+                <span>{loading === 'facebook' ? 'Connecting…' : 'Continue with Facebook'}</span>
+              </button>
+            </>
+          )}
+        </div>
+        <div className="auth-divider"><span>{(googleConfigured || facebookConfigured) ? 'Continue with your Learnwise account' : 'or use your email'}</span></div>
         <form className="auth-form-modern" onSubmit={submit}>
           {register && <div className="auth-field-row"><label>First name<input name="firstName" placeholder={roleParam === 'teacher' ? 'Maya' : 'Sarah'} autoComplete="given-name" required /></label><label>Last name<input name="lastName" placeholder="Chen" autoComplete="family-name" required /></label></div>}
           <label>Email address<input name="email" type="email" placeholder="you@example.com" autoComplete="email" required /></label>
@@ -92,9 +188,9 @@ export function AuthPage({ register = false }) {
           {register && <label>How will you use Learnwise?<select name="role" defaultValue={roleParam}><option value="student">As a student</option><option value="teacher">As an educator</option></select></label>}
           {!register && <div className="auth-form-meta"><label className="remember-label"><input type="checkbox" /> Remember me</label><Link to="/auth/forgot-password">Forgot password?</Link></div>}
           {error && <p className="form-error" role="alert">{error}</p>}
-          <button className="auth-submit" type="submit" disabled={Boolean(loading)}>{loading === 'email' ? 'Connecting…' : register ? 'Create my account' : 'Log in'} <ArrowRight size={16} /></button>
+          <button className="auth-submit" type="submit" disabled={Boolean(loading)}>{loading === 'email' ? 'Connecting…' : loading === 'google' || loading === 'facebook' ? <Loader2 size={16} /> : register ? 'Create my account' : 'Log in'} <ArrowRight size={16} /></button>
         </form>
-        <p className="auth-legal">By continuing, you agree to Learnwise’s <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+        <p className="auth-legal">By continuing, you agree to Learnwise's <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
         <p className="auth-switch">{register ? 'Already have an account?' : 'New to Learnwise?'} <Link to={register ? '/auth/login' : '/auth/register'}>{register ? 'Log in' : 'Create an account'}</Link></p>
         <div className="auth-secure"><Check size={14} /> {isBackendApiEnabled ? 'Secure sign-in through the Learnwise service' : 'Preview sign-in · credentials are not sent to a server'}</div>
       </div>

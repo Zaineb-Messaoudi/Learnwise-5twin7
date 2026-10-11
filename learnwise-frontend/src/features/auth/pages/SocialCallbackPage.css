@@ -1,0 +1,62 @@
+.callback-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--bg);
+}
+
+.callback-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-8);
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+}
+
+.callback-icon {
+  display: inline-flex;
+  margin-bottom: var(--space-4);
+}
+
+.callback-icon svg {
+  color: var(--brand);
+}
+
+.callback-icon.loading svg {
+  animation: spin 1s linear infinite;
+}
+
+.callback-icon.success svg {
+  color: var(--success);
+}
+
+.callback-icon.error svg {
+  color: var(--danger);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.callback-card h1 {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+  color: var(--fg);
+}
+
+.callback-card p {
+  color: var(--muted);
+  margin-bottom: var(--space-6);
+  line-height: 1.6;
+}
+
+.callback-card .button {
+  width: 100%;
+}
