@@ -301,8 +301,24 @@ class SocialAuthView(APIView):
         serializer.is_valid(raise_exception=True)
 
         provider = serializer.validated_data['provider']
-        access_token = serializer.validated_data['access_token']
+        access_token = serializer.validated_data.get('access_token')
+        code = serializer.validated_data.get('code')
         role = serializer.validated_data.get('role', 'etudiant')
+
+        # If code is provided, exchange it for access token
+        if code and not access_token:
+            if provider == 'google':
+                access_token = self._exchange_google_code(code)
+            elif provider == 'facebook':
+                access_token = self._exchange_facebook_code(code)
+            else:
+                return Response({'detail': 'Unsupported provider.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if not access_token:
+                return Response({'detail': 'Failed to exchange authorization code.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not access_token:
+            return Response({'detail': 'Access token or authorization code required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if provider == 'google':
             user_data = self._verify_google_token(access_token)
@@ -349,6 +365,45 @@ class SocialAuthView(APIView):
             'refresh': tokens['refresh'],
             'is_new_user': created,
         })
+
+    def _exchange_google_code(self, code):
+        import requests
+        try:
+            response = requests.post(
+                'https://oauth2.googleapis.com/token',
+                data={
+                    'client_id': settings.GOOGLE_CLIENT_ID,
+                    'client_secret': settings.GOOGLE_CLIENT_SECRET,
+                    'code': code,
+                    'grant_type': 'authorization_code',
+                    'redirect_uri': settings.GOOGLE_CALLBACK_URL,
+                },
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json().get('access_token')
+        except Exception as e:
+            logger.error(f"Google code exchange failed: {e}")
+        return None
+
+    def _exchange_facebook_code(self, code):
+        import requests
+        try:
+            response = requests.get(
+                'https://graph.facebook.com/v23.0/oauth/access_token',
+                params={
+                    'client_id': settings.FACEBOOK_APP_ID,
+                    'client_secret': settings.FACEBOOK_APP_SECRET,
+                    'code': code,
+                    'redirect_uri': settings.FACEBOOK_CALLBACK_URL,
+                },
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json().get('access_token')
+        except Exception as e:
+            logger.error(f"Facebook code exchange failed: {e}")
+        return None
 
     def _verify_google_token(self, access_token):
         import requests

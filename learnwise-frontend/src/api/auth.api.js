@@ -12,7 +12,7 @@ export const authApi = {
     confirmPasswordReset: (payload) => apiRequest('/auth/password-reset/confirm/', { method: 'POST', body: payload }),
     verifyEmail: (token) => apiRequest('/auth/verify-email/', { method: 'POST', body: { token } }),
     resendVerification: () => apiRequest('/accounts/resend-verification/', { method: 'POST' }),
-    socialLogin: (provider, accessToken, role) => apiRequest('/auth/social/', { method: 'POST', body: { provider, access_token: accessToken, role } }),
+    socialLogin: (provider, accessToken, role, code = null) => apiRequest('/auth/social/', { method: 'POST', body: { provider, access_token: accessToken, code, role } }),
     // Admin endpoints
     adminListUsers: (params = {}) => apiRequest('/admin/users/', { params }),
     adminGetUser: (id) => apiRequest(`/admin/users/${id}/`),

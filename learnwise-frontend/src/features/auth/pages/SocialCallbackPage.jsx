@@ -1,37 +1,51 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
-import { authApi } from '../../api/auth.api';
 import { useAuth } from '../../contexts/AuthContext';
 import './SocialCallbackPage.css';
 
 export function SocialCallbackPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { socialLogin, login } = useAuth();
+  const { socialLogin } = useAuth();
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
 
   useEffect(() => {
     const handleCallback = async () => {
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      const accessToken = params.get('access_token');
-      const provider = searchParams.get('provider') || params.get('provider');
-      const role = searchParams.get('role') || 'etudiant';
-      const next = searchParams.get('next') || '/student/dashboard';
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      const stateStr = params.get('state');
+      const oauthError = params.get('error');
 
-      if (!accessToken || !provider) {
+      if (oauthError) {
         setStatus('error');
-        setError('Invalid callback. Missing access token or provider.');
+        setError(`Social login failed: ${params.get('error_description') || oauthError}`);
         return;
       }
 
+      if (!code || !stateStr) {
+        setStatus('error');
+        setError('Invalid callback. Missing authorization code or state.');
+        return;
+      }
+
+      let state;
       try {
-        const result = await socialLogin(provider, accessToken, role);
+        state = JSON.parse(stateStr);
+      } catch {
+        setStatus('error');
+        setError('Invalid state parameter.');
+        return;
+      }
+
+      const { provider, role, next } = state;
+
+      try {
+        const result = await socialLogin(provider, null, role, code);
         if (result.success) {
           setStatus('success');
-          setTimeout(() => navigate(next, { replace: true }), 1500);
+          setTimeout(() => navigate(next || '/student/dashboard', { replace: true }), 1500);
         } else {
           setStatus('error');
           setError(result.error);

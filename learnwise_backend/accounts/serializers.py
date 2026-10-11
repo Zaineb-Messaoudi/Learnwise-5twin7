@@ -98,8 +98,14 @@ class EmailVerificationSerializer(serializers.Serializer):
 
 class SocialAuthSerializer(serializers.Serializer):
     provider = serializers.ChoiceField(choices=['google', 'facebook'])
-    access_token = serializers.CharField()
+    access_token = serializers.CharField(required=False)
+    code = serializers.CharField(required=False)
     role = serializers.ChoiceField(choices=User.ROLE_CHOICES, default='etudiant')
+
+    def validate(self, attrs):
+        if not attrs.get('access_token') and not attrs.get('code'):
+            raise serializers.ValidationError('Either access_token or code is required.')
+        return attrs
 
 
 class AdminUserSerializer(serializers.ModelSerializer):

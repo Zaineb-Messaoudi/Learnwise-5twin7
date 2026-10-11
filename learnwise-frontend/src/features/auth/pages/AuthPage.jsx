@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, Check, LockKeyhole, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowRight, Check, LockKeyhole, Sparkles, Loader2 } from 'lucide-react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '../../../api/auth.api';
 import { isBackendApiEnabled } from '../../../api/client';
@@ -18,58 +18,77 @@ export function AuthPage({ register = false }) {
   const roleParam = searchParams.get('role') === 'teacher' ? 'teacher' : 'student';
   const next = searchParams.get('next') || (register && roleParam === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
 
-  const handleSocialLogin = async (provider) => {
+  const handleSocialLogin = (provider) => {
     setLoading(provider);
     setError('');
-    try {
-      if (!isBackendApiEnabled) {
-        setTimeout(() => {
-          login({ id: `preview-${provider}-user`, name: roleParam === 'teacher' ? 'Maya Chen' : 'Sarah Chen', email: `preview-${provider}@learnwise.ai`, role: roleParam });
-          navigate(next, { replace: true });
-        }, 350);
-        return;
-      }
 
-      const clientId = provider === 'google'
-        ? import.meta.env.VITE_GOOGLE_CLIENT_ID
-        : import.meta.env.VITE_FACEBOOK_APP_ID;
+    if (!isBackendApiEnabled) {
+      setTimeout(() => {
+        login({ id: `preview-${provider}-user`, name: roleParam === 'teacher' ? 'Maya Chen' : 'Sarah Chen', email: `preview-${provider}@learnwise.ai`, role: roleParam });
+        navigate(next, { replace: true });
+      }, 350);
+      return;
+    }
 
-      const redirectUri = `${window.location.origin}/auth/social-callback`;
+    const clientId = provider === 'google'
+      ? import.meta.env.VITE_GOOGLE_CLIENT_ID
+      : import.meta.env.VITE_FACEBOOK_APP_ID;
 
-      if (provider === 'google' && clientId) {
-        const scope = 'openid email profile';
-        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
-        window.location.href = authUrl;
-        return;
-      }
-
-      if (provider === 'facebook' && clientId) {
-        const scope = 'email,public_profile';
-        const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scope)}`;
-        window.location.href = authUrl;
-        return;
-      }
-
-      setError(`${provider} login is not configured. Please contact support.`);
+    if (!clientId) {
+      setError(`${provider} login is not configured.`);
       setLoading('');
-    } catch (err) {
+      return;
+    }
+
+    const redirectUri = `${window.location.origin}/auth/social-callback`;
+    const state = JSON.stringify({ provider, role: roleParam, next });
+
+    let authUrl;
+    if (provider === 'google') {
+      const scope = 'openid email profile';
+      authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`;
+    } else if (provider === 'facebook') {
+      const scope = 'email,public_profile';
+      authUrl = `https://www.facebook.com/v23.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&state=${encodeURIComponent(state)}`;
+    }
+
+    if (authUrl) {
+      window.location.href = authUrl;
+    } else {
       setError(`Failed to start ${provider} login.`);
       setLoading('');
     }
   };
 
   const handleSocialCallback = async () => {
-    const hash = window.location.hash.substring(1);
-    const params = new URLSearchParams(hash);
-    const accessToken = params.get('access_token');
-    const provider = params.get('provider') || new URLSearchParams(window.location.search).get('provider');
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const stateStr = params.get('state');
+    const error = params.get('error');
 
-    if (accessToken && provider) {
-      setLoading(provider);
+    if (error) {
+      setError(`Social login failed: ${params.get('error_description') || error}`);
+      setLoading('');
+      return;
+    }
+
+    if (code && stateStr) {
+      let state;
       try {
-        const result = await socialLogin(provider, accessToken, roleParam);
+        state = JSON.parse(stateStr);
+      } catch {
+        setError('Invalid state parameter.');
+        setLoading('');
+        return;
+      }
+
+      const { provider, role, next: nextPath } = state;
+      setLoading(provider);
+
+      try {
+        const result = await socialLogin(provider, null, role, code);
         if (result.success) {
-          navigate(next, { replace: true });
+          navigate(nextPath || next, { replace: true });
         } else {
           setError(result.error);
           setLoading('');
@@ -82,7 +101,7 @@ export function AuthPage({ register = false }) {
   };
 
   useEffect(() => {
-    if (window.location.hash.includes('access_token')) {
+    if (window.location.search.includes('code=')) {
       handleSocialCallback();
     }
   }, []);

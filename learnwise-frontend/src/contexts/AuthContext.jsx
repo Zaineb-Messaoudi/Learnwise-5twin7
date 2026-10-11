@@ -143,11 +143,11 @@ export function AuthProvider({ children }) {
         }
     };
 
-    const socialLogin = async (provider, accessToken, role = 'etudiant') => {
+    const socialLogin = async (provider, accessToken, role = 'etudiant', code = null) => {
         setLoading(true);
         setError(null);
         try {
-            const response = await authApi.socialLogin(provider, accessToken, role);
+            const response = await authApi.socialLogin(provider, accessToken, role, code);
             if (response?.user && response?.access && response?.refresh) {
                 login(response.user, { access: response.access, refresh: response.refresh });
             }
