@@ -1,5 +1,5 @@
 """
-Tests des étapes 2 (quiz), 3 (tentatives, correction) et 5 (exercices). Lancer avec :  python manage.py test assessment
+Tests des étapes 2 (quiz), 3 (tentatives, correction), 5 (exercices) et du filtre ?course=. Lancer avec :  python manage.py test assessment
 Chaque test part d'une base vide : les données sont créées dans setUp.
 """
 from django.contrib.auth import get_user_model
@@ -674,3 +674,70 @@ class ExerciseApiTests(APITestCase):
         self.assertTrue(self.submit(exercise_id, right).data['is_correct'])
         self.assertEqual(ExerciseSubmission.objects.filter(user=self.student).count(), 2)
         self.assertEqual(ExerciseSubmission.objects.filter(user=self.other_student).count(), 0)
+
+
+
+# ===========================================================================
+# Filtre de liste ?course=<id> (utilisé par le frontend)
+# ===========================================================================
+@override_settings(PASSWORD_HASHERS=FAST_HASHER)
+class CourseFilterTests(APITestCase):
+    def setUp(self):
+        self.course_a = Course.objects.create(title='Anglais', description='d', level='L1', language='fr')
+        self.course_b = Course.objects.create(title='Maths', description='d', level='L1', language='fr')
+        self.teacher = make_user('prof@x.com', 'professeur')
+        self.student = make_user('stud@x.com', 'etudiant')
+        self.client.force_authenticate(self.teacher)
+        # Un quiz et un exercice PUBLIÉS dans chaque cours (les étudiants ne voient que du publié).
+        self.quiz = {}
+        self.exercise = {}
+        for key, course in (('a', self.course_a), ('b', self.course_b)):
+            quiz_id = self.client.post(BASE, quiz_payload(course), format='json').data['id']
+            self.client.post(f'{BASE}{quiz_id}/publish/')
+            exercise_id = self.client.post(EX, exercise_payload(course), format='json').data['id']
+            self.client.post(f'{EX}{exercise_id}/publish/')
+            self.quiz[key], self.exercise[key] = quiz_id, exercise_id
+
+    def ids(self, url, user):
+        self.client.force_authenticate(user)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        return [item['id'] for item in response.data['results']]
+
+    def test_quizzes_filtered_by_course(self):
+        for user in (self.student, self.teacher):
+            self.assertEqual(self.ids(f'{BASE}?course={self.course_a.id}', user), [self.quiz['a']])
+            self.assertEqual(self.ids(f'{BASE}?course={self.course_b.id}', user), [self.quiz['b']])
+
+    def test_exercises_filtered_by_course(self):
+        for user in (self.student, self.teacher):
+            self.assertEqual(self.ids(f'{EX}?course={self.course_a.id}', user), [self.exercise['a']])
+            self.assertEqual(self.ids(f'{EX}?course={self.course_b.id}', user), [self.exercise['b']])
+
+    def test_without_filter_everything_visible_is_returned(self):
+        self.assertEqual(set(self.ids(BASE, self.student)), {self.quiz['a'], self.quiz['b']})
+        self.assertEqual(set(self.ids(EX, self.student)), {self.exercise['a'], self.exercise['b']})
+        # un paramètre vide (?course=) équivaut à pas de filtre
+        self.assertEqual(set(self.ids(f'{BASE}?course=', self.student)), {self.quiz['a'], self.quiz['b']})
+
+    def test_unknown_course_gives_empty_list(self):
+        self.client.force_authenticate(self.student)
+        for url in (BASE, EX):
+            response = self.client.get(f'{url}?course=9999')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual((response.data['count'], response.data['results']), (0, []))
+
+    def test_invalid_course_id_uses_contract_error_format(self):
+        self.client.force_authenticate(self.student)
+        for url in (BASE, EX):
+            response = self.client.get(f'{url}?course=abc')
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.data['detail'], 'Correct the highlighted fields.')
+            self.assertIn('course', response.data['errors'])
+
+    def test_filter_does_not_widen_visibility(self):
+        # Un brouillon reste invisible pour l'étudiant même si on filtre sur son cours.
+        self.client.force_authenticate(self.teacher)
+        draft_id = self.client.post(BASE, quiz_payload(self.course_a, title='Brouillon'), format='json').data['id']
+        self.assertNotIn(draft_id, self.ids(f'{BASE}?course={self.course_a.id}', self.student))
+        self.assertIn(draft_id, self.ids(f'{BASE}?course={self.course_a.id}', self.teacher))

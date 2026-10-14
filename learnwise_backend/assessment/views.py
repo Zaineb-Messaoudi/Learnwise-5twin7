@@ -103,6 +103,22 @@ def detail_response(request, quiz, http_status=status.HTTP_200_OK):
     return Response(data, status=http_status)
 
 
+def filter_by_course(queryset, request):
+    """
+    Filtre de liste `?course=<id>` utilisé par le frontend pour n'afficher que les
+    quiz / exercices d'un cours. Sans paramètre, rien ne change ; avec un id
+    invalide, on répond 400 au format du contrat (au lieu d'ignorer l'erreur).
+    """
+    course = request.query_params.get('course')
+    if course in (None, ''):
+        return queryset
+    try:
+        course_id = int(course)
+    except ValueError:
+        raise ValidationError({'course': ['A valid course id is required.']})
+    return queryset.filter(course_id=course_id)
+
+
 # ---------------------------------------------------------------------------
 # GET/POST /quizzes/
 # ---------------------------------------------------------------------------
@@ -111,7 +127,8 @@ class QuizListCreateView(ContractErrorsMixin, generics.ListCreateAPIView):
     serializer_class = QuizListSerializer  # liste paginée : {count, next, previous, results}
 
     def get_queryset(self):
-        return visible_quizzes(self.request.user)
+        # Visibilité selon le rôle, puis filtre facultatif ?course=<id>.
+        return filter_by_course(visible_quizzes(self.request.user), self.request)
 
     def create(self, request, *args, **kwargs):
         serializer = QuizWriteSerializer(data=request.data, context={'request': request})
@@ -319,7 +336,8 @@ class ExerciseListCreateView(ContractErrorsMixin, generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, IsTeacherOrReadOnly]
 
     def get_queryset(self):
-        return visible_exercises(self.request.user)
+        # Visibilité selon le rôle, puis filtre facultatif ?course=<id>.
+        return filter_by_course(visible_exercises(self.request.user), self.request)
 
     def get_serializer_class(self):
         return exercise_serializer_class(self.request.user)
