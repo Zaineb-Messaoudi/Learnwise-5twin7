@@ -1,5 +1,5 @@
 """
-Correction d'une tentative : calcule le score et fabrique l'évaluation.
+Correction d'une tentative de quiz (et d'une réponse d'exercice) : score et feedback.
 
 Règles (celles renvoyées dans `scoring` par le détail du quiz) :
 - 1 point par bonne réponse, aucun retrait pour une mauvaise réponse ;
@@ -48,6 +48,22 @@ def _overall_feedback(correct, total):
     if ratio >= 0.5:
         return TXT_GOOD
     return TXT_KEEP_GOING
+
+
+def grade_exercise(exercise, selected_choice):
+    """
+    Corrige UNE réponse à un exercice (pas de tentative : chaque soumission est indépendante).
+    Renvoie (is_correct, feedback) ; `exercise.choices` doit être préchargé.
+    """
+    correct_choice = next((c for c in exercise.choices.all() if c.is_correct), None)
+    is_correct = correct_choice is not None and selected_choice.id == correct_choice.id
+    if correct_choice is None:
+        verdict = TXT_NO_CORRECT_CHOICE
+    elif is_correct:
+        verdict = TXT_CORRECT
+    else:
+        verdict = TXT_WRONG.format(answer=correct_choice.text)
+    return is_correct, f'{verdict} {exercise.explanation}'.strip()
 
 
 @transaction.atomic

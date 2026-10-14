@@ -1,5 +1,5 @@
 """
-Serializers du module `assessment` (étape 2 : quiz, étape 3 : tentatives).
+Serializers du module `assessment` (étape 2 : quiz, étape 3 : tentatives, étape 5 : exercices).
 
 Deux représentations en lecture :
 - professeur : voit `is_correct` et `explanation` (pour relire le quiz) ;
@@ -15,8 +15,10 @@ from rest_framework import serializers
 from content.models import Course
 
 from .models import (
-    Answer, Choice, Difficulty, Evaluation, Question, QuestionType, Quiz, QuizAttempt,
+    Answer, Choice, Difficulty, Evaluation, Exercise, ExerciseChoice, ExerciseSubmission,
+    Question, QuestionType, Quiz, QuizAttempt,
 )
+from .permissions import is_admin
 
 
 # ---------------------------------------------------------------------------
@@ -303,3 +305,145 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
     def get_score(self, obj):
         return int(obj.score)  # compte, pas pourcentage
+
+
+# ---------------------------------------------------------------------------
+# Étape 5 : exercices
+# ---------------------------------------------------------------------------
+class ExerciseChoiceStudentSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = ExerciseChoice
+        fields = ['id', 'text']  # jamais is_correct côté étudiant
+
+
+class ExerciseChoiceTeacherSerializer(ExerciseChoiceStudentSerializer):
+    class Meta(ExerciseChoiceStudentSerializer.Meta):
+        fields = ['id', 'text', 'is_correct']
+
+
+class ExerciseStudentSerializer(serializers.ModelSerializer):
+    """Forme du contrat : {id, title, description, prompt, choices: [{id, text}]} (+ liens)."""
+    id = serializers.CharField(read_only=True)
+    course_id = serializers.SerializerMethodField()
+    quiz_id = serializers.SerializerMethodField()
+    choices = ExerciseChoiceStudentSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Exercise
+        fields = ['id', 'course_id', 'quiz_id', 'title', 'description', 'prompt', 'choices']
+
+    def get_course_id(self, obj):
+        return str(obj.course_id) if obj.course_id else None
+
+    def get_quiz_id(self, obj):
+        return str(obj.quiz_id) if obj.quiz_id else None
+
+
+class ExerciseTeacherSerializer(ExerciseStudentSerializer):
+    """Le professeur voit en plus les bonnes réponses, l'explication et l'état de publication."""
+    choices = ExerciseChoiceTeacherSerializer(many=True, read_only=True)
+    author_id = serializers.SerializerMethodField()
+
+    class Meta(ExerciseStudentSerializer.Meta):
+        fields = ExerciseStudentSerializer.Meta.fields + [
+            'explanation', 'status', 'author_id', 'created_at', 'published_at',
+        ]
+
+    def get_author_id(self, obj):
+        return str(obj.created_by_id) if obj.created_by_id else None
+
+
+def _save_exercise_choices(exercise, choices):
+    """Crée les choix ; l'ordre de la liste devient `order`."""
+    ExerciseChoice.objects.bulk_create([
+        ExerciseChoice(exercise=exercise, order=index, **choice)
+        for index, choice in enumerate(choices)
+    ])
+
+
+class ExerciseWriteSerializer(serializers.ModelSerializer):
+    course_id = serializers.PrimaryKeyRelatedField(source='course', queryset=Course.objects.all())
+    # quiz_id est facultatif : un exercice peut exister sans quiz.
+    quiz_id = serializers.PrimaryKeyRelatedField(
+        source='quiz', queryset=Quiz.objects.all(), required=False, allow_null=True,
+    )
+    title = serializers.CharField(max_length=255)
+    choices = ChoiceInputSerializer(many=True, required=False)
+
+    class Meta:
+        model = Exercise
+        fields = ['course_id', 'quiz_id', 'title', 'description', 'prompt', 'explanation', 'choices']
+
+    def validate(self, attrs):
+        # En PATCH, on complète avec les valeurs déjà enregistrées pour comparer.
+        course = attrs.get('course', self.instance.course if self.instance else None)
+        quiz = attrs.get('quiz', self.instance.quiz if self.instance else None)
+        if quiz is not None:
+            user = self.context['request'].user
+            # Un professeur ne peut lier que SES quiz (message neutre : on ne révèle pas ceux des autres).
+            if not is_admin(user) and quiz.created_by_id != user.id:
+                raise serializers.ValidationError({'quiz_id': ['This quiz does not exist.']})
+            if course is not None and quiz.course_id != course.id:
+                raise serializers.ValidationError({'quiz_id': ['This quiz belongs to a different course.']})
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        choices = validated_data.pop('choices', [])
+        # L'auteur est toujours l'utilisateur connecté.
+        exercise = Exercise.objects.create(created_by=self.context['request'].user, **validated_data)
+        _save_exercise_choices(exercise, choices)
+        return exercise
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        choices = validated_data.pop('choices', None)
+        for attribute, value in validated_data.items():
+            setattr(instance, attribute, value)
+        instance.save()
+        if choices is not None:  # la liste envoyée REMPLACE tous les choix (exercice encore en brouillon)
+            instance.choices.all().delete()
+            _save_exercise_choices(instance, choices)
+        return instance
+
+
+def exercise_publish_errors(exercise):
+    """Problèmes qui empêchent la publication d'un exercice (liste vide = prêt)."""
+    choices = list(exercise.choices.all())
+    correct = [choice for choice in choices if choice.is_correct]
+    errors = []
+    if len(choices) < 2:
+        errors.append('An exercise needs at least 2 choices.')
+    if len(correct) != 1:
+        errors.append('An exercise needs exactly 1 correct choice.')
+    return errors
+
+
+class ExerciseAnswerSerializer(serializers.Serializer):
+    """Corps de POST /submissions/ : {"answer": <id du choix>} ; l'exercice vient du contexte."""
+    answer = serializers.IntegerField()
+
+    def validate_answer(self, value):
+        choice = next((c for c in self.context['exercise'].choices.all() if c.id == value), None)
+        if choice is None:
+            raise serializers.ValidationError('This choice does not belong to this exercise.')
+        return choice  # on renvoie l'objet ExerciseChoice, pas seulement l'id
+
+
+class ExerciseSubmissionSerializer(serializers.ModelSerializer):
+    """Résultat d'une réponse : is_correct + feedback destiné à l'étudiant."""
+    id = serializers.CharField(read_only=True)
+    exercise_id = serializers.SerializerMethodField()
+    answer = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExerciseSubmission
+        fields = ['id', 'exercise_id', 'answer', 'is_correct', 'feedback', 'submitted_at']
+
+    def get_exercise_id(self, obj):
+        return str(obj.exercise_id)
+
+    def get_answer(self, obj):
+        return str(obj.selected_choice_id) if obj.selected_choice_id else None

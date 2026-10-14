@@ -3,7 +3,8 @@ Vues du module `assessment`.
 
 Étape 2 : routes de quiz (liste/création, détail/modification/suppression, publication).
 Étape 3 : routes de tentatives (démarrer, sauvegarder, soumettre, évaluation).
-Les routes restantes (exercices, génération) pointent encore vers `NotImplementedView` (501).
+Étape 5 : routes d'exercices (liste/création, détail, publication, soumission d'une réponse).
+La route de génération IA pointe encore vers `NotImplementedView` (501).
 """
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -15,13 +16,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import PublishStatus, Quiz, QuizAttempt
+from .models import Exercise, ExerciseSubmission, PublishStatus, Quiz, QuizAttempt
 from .permissions import IsStudent, IsTeacher, IsTeacherOrReadOnly, is_admin, is_teacher
-from .scoring import evaluate_attempt
+from .scoring import evaluate_attempt, grade_exercise
 from .serializers import (
-    AnswerMapSerializer, AttemptSerializer, EvaluationSerializer,
-    QuizDetailStudentSerializer, QuizDetailTeacherSerializer, QuizListSerializer,
-    QuizWriteSerializer, publish_errors, save_answers,
+    AnswerMapSerializer, AttemptSerializer, EvaluationSerializer, ExerciseAnswerSerializer,
+    ExerciseStudentSerializer, ExerciseSubmissionSerializer, ExerciseTeacherSerializer,
+    ExerciseWriteSerializer, QuizDetailStudentSerializer, QuizDetailTeacherSerializer,
+    QuizListSerializer, QuizWriteSerializer, exercise_publish_errors, publish_errors,
+    save_answers,
 )
 
 
@@ -281,3 +284,120 @@ class AttemptEvaluationView(ContractErrorsMixin, APIView):
         if evaluation is None:
             raise NotFound('This attempt has not been submitted yet.')
         return Response(EvaluationSerializer(evaluation).data)
+
+
+# ===========================================================================
+# Étape 5 : exercices (mêmes règles de visibilité que les quiz)
+# ===========================================================================
+def visible_exercises(user):
+    """
+    Exercices que cet utilisateur peut voir :
+    admin = tous ; professeur = les siens ; étudiant = seulement les publiés.
+    """
+    queryset = Exercise.objects.prefetch_related('choices')
+    if is_admin(user):
+        return queryset
+    if is_teacher(user):
+        return queryset.filter(created_by=user)
+    return queryset.filter(status=PublishStatus.PUBLISHED)
+
+
+def exercise_serializer_class(user):
+    """Le professeur voit les bonnes réponses, l'étudiant non."""
+    return ExerciseTeacherSerializer if is_teacher(user) else ExerciseStudentSerializer
+
+
+def exercise_response(request, exercise, http_status=status.HTTP_200_OK):
+    """Recharge l'exercice (cache de prefetch périmé après écriture) puis le sérialise."""
+    exercise = visible_exercises(request.user).get(pk=exercise.pk)
+    data = exercise_serializer_class(request.user)(exercise, context={'request': request}).data
+    return Response(data, status=http_status)
+
+
+class ExerciseListCreateView(ContractErrorsMixin, generics.ListCreateAPIView):
+    """GET : liste paginée selon le rôle. POST : le professeur crée un brouillon."""
+    permission_classes = [IsAuthenticated, IsTeacherOrReadOnly]
+
+    def get_queryset(self):
+        return visible_exercises(self.request.user)
+
+    def get_serializer_class(self):
+        return exercise_serializer_class(self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = ExerciseWriteSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        exercise = serializer.save()
+        return exercise_response(request, exercise, status.HTTP_201_CREATED)
+
+
+class ExerciseDetailView(ContractErrorsMixin, generics.RetrieveUpdateDestroyAPIView):
+    """GET / PATCH / DELETE : modification et suppression réservées aux brouillons."""
+    permission_classes = [IsAuthenticated, IsTeacherOrReadOnly]
+    lookup_url_kwarg = 'exercise_id'
+    http_method_names = ['get', 'patch', 'delete', 'head', 'options']  # pas de PUT
+
+    def get_queryset(self):
+        return visible_exercises(self.request.user)
+
+    def get_serializer_class(self):
+        return exercise_serializer_class(self.request.user)
+
+    def partial_update(self, request, *args, **kwargs):
+        exercise = self.get_object()
+        if exercise.status != PublishStatus.DRAFT:
+            raise Conflict('Only draft exercises can be edited.')
+        serializer = ExerciseWriteSerializer(
+            exercise, data=request.data, partial=True, context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return exercise_response(request, exercise)
+
+    def destroy(self, request, *args, **kwargs):
+        exercise = self.get_object()
+        if exercise.status != PublishStatus.DRAFT:
+            # Supprimer un exercice publié effacerait les soumissions des étudiants.
+            raise Conflict('Only draft exercises can be deleted.')
+        exercise.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ExercisePublishView(ContractErrorsMixin, APIView):
+    """POST : publie un exercice complet (au moins 2 choix, exactement 1 bonne réponse)."""
+    permission_classes = [IsAuthenticated, IsTeacher]
+
+    def post(self, request, exercise_id):
+        exercise = get_object_or_404(visible_exercises(request.user), pk=exercise_id)
+        if exercise.status == PublishStatus.PUBLISHED:
+            raise Conflict('This exercise is already published.')
+        problems = exercise_publish_errors(exercise)
+        if problems:
+            raise ValidationError({'choices': problems})
+        exercise.status = PublishStatus.PUBLISHED
+        exercise.published_at = timezone.now()
+        exercise.save(update_fields=['status', 'published_at'])
+        return exercise_response(request, exercise)
+
+
+class ExerciseSubmissionView(ContractErrorsMixin, APIView):
+    """
+    POST : l'étudiant répond à un exercice publié et reçoit aussitôt is_correct + feedback.
+    Il peut réessayer : chaque réponse est enregistrée comme une soumission distincte.
+    """
+    permission_classes = [IsAuthenticated, IsStudent]
+
+    def post(self, request, exercise_id):
+        exercise = get_object_or_404(
+            Exercise.objects.prefetch_related('choices'),
+            pk=exercise_id, status=PublishStatus.PUBLISHED,
+        )
+        serializer = ExerciseAnswerSerializer(data=request.data, context={'exercise': exercise})
+        serializer.is_valid(raise_exception=True)
+        choice = serializer.validated_data['answer']
+        is_correct, feedback = grade_exercise(exercise, choice)
+        submission = ExerciseSubmission.objects.create(
+            exercise=exercise, user=request.user, selected_choice=choice,
+            is_correct=is_correct, feedback=feedback,
+        )
+        return Response(ExerciseSubmissionSerializer(submission).data, status=status.HTTP_201_CREATED)

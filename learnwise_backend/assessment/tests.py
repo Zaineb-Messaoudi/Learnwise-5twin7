@@ -1,5 +1,5 @@
 """
-Tests des étapes 2 (quiz) et 3 (tentatives, correction). Lancer avec :  python manage.py test assessment
+Tests des étapes 2 (quiz), 3 (tentatives, correction) et 5 (exercices). Lancer avec :  python manage.py test assessment
 Chaque test part d'une base vide : les données sont créées dans setUp.
 """
 from django.contrib.auth import get_user_model
@@ -8,10 +8,13 @@ from rest_framework.test import APITestCase
 
 from content.models import Course
 
-from .models import Answer, Evaluation, Question, Quiz, QuizAttempt
+from .models import (
+    Answer, Evaluation, Exercise, ExerciseChoice, ExerciseSubmission, Question, Quiz, QuizAttempt,
+)
 
 User = get_user_model()
 BASE = '/api/v1/assessment/quizzes/'
+EX = '/api/v1/assessment/exercises/'
 FAST_HASHER = ['django.contrib.auth.hashers.MD5PasswordHasher']  # accélère les tests
 
 
@@ -422,3 +425,252 @@ class AttemptApiTests(APITestCase):
         self.assertEqual([a['id'] for a in listing.data['results']], [second_id, first_id])
         self.assertEqual(listing.data['results'][1]['score'], 2)           # tentative corrigée
         self.assertIsNone(listing.data['results'][0]['score'])             # tentative en cours
+
+
+
+# ===========================================================================
+# Étape 5 : exercices
+# ===========================================================================
+def exercise_payload(course, **overrides):
+    """Corps JSON d'un exercice complet et valide : 2 choix, 1 correct."""
+    payload = {
+        'course_id': course.id,
+        'title': 'Exercice 1',
+        'description': 'Choisissez la bonne réponse.',
+        'prompt': 'Capitale de la Tunisie ?',
+        'explanation': 'Tunis est la capitale.',
+        'choices': [{'text': 'Tunis', 'is_correct': True}, {'text': 'Sfax'}],
+    }
+    payload.update(overrides)
+    return payload
+
+
+@override_settings(PASSWORD_HASHERS=FAST_HASHER)
+class ExerciseApiTests(APITestCase):
+    def setUp(self):
+        self.course = Course.objects.create(title='Anglais', description='d', level='L1', language='fr')
+        self.other_course = Course.objects.create(title='Maths', description='d', level='L1', language='fr')
+        self.teacher = make_user('prof@x.com', 'professeur')
+        self.other_teacher = make_user('prof2@x.com', 'professeur')
+        self.student = make_user('stud@x.com', 'etudiant')
+        self.other_student = make_user('stud2@x.com', 'etudiant')
+        self.admin = make_user('admin@x.com', 'admin')
+
+    # --- raccourcis --------------------------------------------------------
+    def create_exercise(self, user=None, **overrides):
+        self.client.force_authenticate(user or self.teacher)
+        return self.client.post(EX, exercise_payload(self.course, **overrides), format='json')
+
+    def create_published(self, user=None, **overrides):
+        exercise_id = self.create_exercise(user, **overrides).data['id']
+        self.client.post(f'{EX}{exercise_id}/publish/')
+        return exercise_id
+
+    def choice_ids(self, exercise_id):
+        """(id de la bonne réponse, id de la mauvaise) d'un exercice créé avec exercise_payload."""
+        right, wrong = ExerciseChoice.objects.filter(exercise_id=exercise_id).order_by('order')
+        return right.id, wrong.id
+
+    # --- accès -------------------------------------------------------------
+    def test_requires_login(self):
+        self.assertEqual(self.client.get(EX).status_code, 401)
+
+    def test_student_cannot_write(self):
+        exercise_id = self.create_published()
+        self.assertEqual(self.create_exercise(self.student).status_code, 403)
+        self.client.force_authenticate(self.student)
+        self.assertEqual(self.client.patch(f'{EX}{exercise_id}/', {'title': 'x'}, format='json').status_code, 403)
+        self.assertEqual(self.client.delete(f'{EX}{exercise_id}/').status_code, 403)
+        self.assertEqual(self.client.post(f'{EX}{exercise_id}/publish/').status_code, 403)
+
+    def test_teacher_cannot_submit_answers(self):
+        exercise_id = self.create_published()
+        right, _ = self.choice_ids(exercise_id)
+        self.client.force_authenticate(self.teacher)
+        self.assertEqual(self.client.post(f'{EX}{exercise_id}/submissions/', {'answer': right}, format='json').status_code, 403)
+
+    # --- création ----------------------------------------------------------
+    def test_teacher_creates_exercise_with_choices(self):
+        response = self.create_exercise()
+        self.assertEqual(response.status_code, 201)
+        data = response.data
+        self.assertEqual(data['status'], 'draft')
+        self.assertIsInstance(data['id'], str)
+        self.assertEqual(data['course_id'], str(self.course.id))
+        self.assertIsNone(data['quiz_id'])
+        self.assertEqual(data['prompt'], 'Capitale de la Tunisie ?')
+        self.assertEqual([c['text'] for c in data['choices']], ['Tunis', 'Sfax'])
+        self.assertTrue(data['choices'][0]['is_correct'])          # le prof voit is_correct
+        self.assertEqual(Exercise.objects.get().created_by, self.teacher)
+
+    def test_author_cannot_be_forged(self):
+        self.create_exercise(created_by=self.admin.id)
+        self.assertEqual(Exercise.objects.get().created_by, self.teacher)
+
+    def test_validation_error_uses_contract_format(self):
+        self.client.force_authenticate(self.teacher)
+        response = self.client.post(EX, {'description': 'incomplet'}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['detail'], 'Correct the highlighted fields.')
+        for field in ('course_id', 'title', 'prompt'):
+            self.assertIn(field, response.data['errors'])
+
+    def test_link_exercise_to_own_quiz_of_same_course(self):
+        self.client.force_authenticate(self.teacher)
+        quiz_id = self.client.post(BASE, quiz_payload(self.course), format='json').data['id']
+        response = self.create_exercise(quiz_id=int(quiz_id))
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['quiz_id'], quiz_id)
+
+    def test_cannot_link_other_teachers_quiz_or_other_course_quiz(self):
+        self.client.force_authenticate(self.other_teacher)
+        foreign_quiz = self.client.post(BASE, quiz_payload(self.course), format='json').data['id']
+        self.assertEqual(self.create_exercise(quiz_id=int(foreign_quiz)).status_code, 400)
+
+        self.client.force_authenticate(self.teacher)
+        other_course_quiz = self.client.post(BASE, quiz_payload(self.other_course), format='json').data['id']
+        response = self.create_exercise(quiz_id=int(other_course_quiz))        # cours différent
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('quiz_id', response.data['errors'])
+
+    # --- visibilité --------------------------------------------------------
+    def test_student_sees_only_published_and_never_is_correct(self):
+        draft_id = self.create_exercise().data['id']
+        published_id = self.create_published()
+        self.client.force_authenticate(self.student)
+
+        listing = self.client.get(EX)
+        self.assertEqual(listing.status_code, 200)
+        for key in ('results', 'count', 'next'):
+            self.assertIn(key, listing.data)
+        self.assertEqual([e['id'] for e in listing.data['results']], [published_id])
+
+        self.assertEqual(self.client.get(f'{EX}{draft_id}/').status_code, 404)
+        detail = self.client.get(f'{EX}{published_id}/').data
+        self.assertNotIn('explanation', detail)
+        for choice in detail['choices']:
+            self.assertEqual(set(choice), {'id', 'text'})          # aucune fuite de la réponse
+        # forme exigée par le contrat
+        for key in ('id', 'title', 'description', 'prompt', 'choices'):
+            self.assertIn(key, detail)
+
+    def test_teacher_sees_only_own_admin_sees_all(self):
+        self.create_exercise(self.teacher)
+        self.create_exercise(self.other_teacher)
+        self.client.force_authenticate(self.teacher)
+        self.assertEqual(self.client.get(EX).data['count'], 1)
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.client.get(EX).data['count'], 2)
+
+    def test_teacher_cannot_touch_another_teachers_exercise(self):
+        exercise_id = self.create_exercise(self.other_teacher).data['id']
+        self.client.force_authenticate(self.teacher)
+        self.assertEqual(self.client.get(f'{EX}{exercise_id}/').status_code, 404)
+        self.assertEqual(self.client.patch(f'{EX}{exercise_id}/', {'title': 'x'}, format='json').status_code, 404)
+        self.assertEqual(self.client.delete(f'{EX}{exercise_id}/').status_code, 404)
+        self.assertEqual(self.client.post(f'{EX}{exercise_id}/publish/').status_code, 404)
+
+    # --- modification et suppression ---------------------------------------
+    def test_patch_title_keeps_choices(self):
+        exercise_id = self.create_exercise().data['id']
+        response = self.client.patch(f'{EX}{exercise_id}/', {'title': 'Nouveau'}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['title'], 'Nouveau')
+        self.assertEqual(len(response.data['choices']), 2)
+
+    def test_patch_choices_replaces_the_list(self):
+        exercise_id = self.create_exercise().data['id']
+        new = [{'text': 'A', 'is_correct': True}, {'text': 'B'}, {'text': 'C'}]
+        response = self.client.patch(f'{EX}{exercise_id}/', {'choices': new}, format='json')
+        self.assertEqual([c['text'] for c in response.data['choices']], ['A', 'B', 'C'])
+        self.assertEqual(ExerciseChoice.objects.count(), 3)
+
+    def test_published_exercise_cannot_be_edited_or_deleted(self):
+        exercise_id = self.create_published()
+        self.client.force_authenticate(self.teacher)
+        self.assertEqual(self.client.patch(f'{EX}{exercise_id}/', {'title': 'x'}, format='json').status_code, 409)
+        self.assertEqual(self.client.delete(f'{EX}{exercise_id}/').status_code, 409)
+
+    def test_delete_draft_and_put_not_allowed(self):
+        exercise_id = self.create_exercise().data['id']
+        self.assertEqual(self.client.put(f'{EX}{exercise_id}/', {}, format='json').status_code, 405)
+        self.assertEqual(self.client.delete(f'{EX}{exercise_id}/').status_code, 204)
+        self.assertFalse(Exercise.objects.exists())
+
+    # --- publication -------------------------------------------------------
+    def test_publish_ok_then_conflict(self):
+        exercise_id = self.create_exercise().data['id']
+        response = self.client.post(f'{EX}{exercise_id}/publish/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['status'], 'published')
+        self.assertIsNotNone(response.data['published_at'])
+        self.assertEqual(self.client.post(f'{EX}{exercise_id}/publish/').status_code, 409)
+
+    def test_publish_rejects_incomplete_choices(self):
+        no_correct = [{'text': 'a'}, {'text': 'b'}]
+        two_correct = [{'text': 'a', 'is_correct': True}, {'text': 'b', 'is_correct': True}]
+        one_choice = [{'text': 'a', 'is_correct': True}]
+        for choices in (no_correct, two_correct, one_choice, []):
+            exercise_id = self.create_exercise(choices=choices).data['id']
+            response = self.client.post(f'{EX}{exercise_id}/publish/')
+            self.assertEqual(response.status_code, 400, choices)
+            self.assertEqual(response.data['detail'], 'Correct the highlighted fields.')
+            self.assertTrue(response.data['errors']['choices'])
+            self.assertEqual(Exercise.objects.get(pk=exercise_id).status, 'draft')
+
+    # --- soumission d'une réponse ------------------------------------------
+    def submit(self, exercise_id, answer, user=None):
+        self.client.force_authenticate(user or self.student)
+        return self.client.post(f'{EX}{exercise_id}/submissions/', {'answer': answer}, format='json')
+
+    def test_correct_answer(self):
+        exercise_id = self.create_published()
+        right, _ = self.choice_ids(exercise_id)
+        response = self.submit(exercise_id, right)
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data['is_correct'])
+        self.assertIn('Correct', response.data['feedback'])
+        self.assertIn('Tunis est la capitale.', response.data['feedback'])   # explication du prof
+        self.assertEqual(response.data['exercise_id'], exercise_id)
+        self.assertEqual(response.data['answer'], str(right))
+        submission = ExerciseSubmission.objects.get()
+        self.assertEqual((submission.user, submission.is_correct), (self.student, True))
+
+    def test_wrong_answer_reveals_the_correct_one(self):
+        exercise_id = self.create_published()
+        _, wrong = self.choice_ids(exercise_id)
+        response = self.submit(exercise_id, wrong)
+        self.assertEqual(response.status_code, 201)
+        self.assertFalse(response.data['is_correct'])
+        self.assertIn('Incorrect', response.data['feedback'])
+        self.assertIn('Tunis', response.data['feedback'])                    # indique la bonne réponse
+
+    def test_answer_accepts_string_id(self):
+        exercise_id = self.create_published()
+        right, _ = self.choice_ids(exercise_id)
+        self.assertEqual(self.submit(exercise_id, str(right)).status_code, 201)
+
+    def test_invalid_answers_rejected_and_not_saved(self):
+        exercise_id = self.create_published()
+        other_id = self.create_published(choices=[{'text': 'X', 'is_correct': True}, {'text': 'Y'}])
+        foreign_choice, _ = self.choice_ids(other_id)                        # choix d'un AUTRE exercice
+        self.client.force_authenticate(self.student)
+        for body in ({}, {'answer': None}, {'answer': 'abc'}, {'answer': 99999}, {'answer': foreign_choice}):
+            response = self.client.post(f'{EX}{exercise_id}/submissions/', body, format='json')
+            self.assertEqual(response.status_code, 400, body)
+            self.assertIn('answer', response.data['errors'])
+        self.assertFalse(ExerciseSubmission.objects.exists())
+
+    def test_cannot_answer_draft_or_unknown_exercise(self):
+        draft_id = self.create_exercise().data['id']
+        draft_choice, _ = self.choice_ids(draft_id)
+        self.assertEqual(self.submit(draft_id, draft_choice).status_code, 404)
+        self.assertEqual(self.submit(9999, 1).status_code, 404)
+
+    def test_student_can_retry_and_each_try_is_recorded(self):
+        exercise_id = self.create_published()
+        right, wrong = self.choice_ids(exercise_id)
+        self.assertFalse(self.submit(exercise_id, wrong).data['is_correct'])
+        self.assertTrue(self.submit(exercise_id, right).data['is_correct'])
+        self.assertEqual(ExerciseSubmission.objects.filter(user=self.student).count(), 2)
+        self.assertEqual(ExerciseSubmission.objects.filter(user=self.other_student).count(), 0)

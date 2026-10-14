@@ -2,8 +2,8 @@
 Routes du module `assessment`, montées sous /api/v1/assessment/ par le projet.
 Elles suivent exactement le tableau du fichier docs/frontend-backend-contract.md.
 
-Étapes 2-3 : les routes de quiz et de tentatives sont réelles ; les autres
-(génération, exercices) pointent encore vers NotImplementedView (501).
+Étapes 2, 3 et 5 : quiz, tentatives et exercices sont réels ; la génération IA
+pointe encore vers NotImplementedView (501).
 """
 from django.urls import path
 
@@ -31,8 +31,8 @@ urlpatterns = [
     path('generations/<int:generation_id>/', todo, name='generation-detail'),    # GET suivre l'état (polling)
 
     # --- Exercices ---
-    path('exercises/', todo, name='exercise-list'),                              # GET liste, POST création
-    path('exercises/<int:exercise_id>/', todo, name='exercise-detail'),          # GET, PATCH, DELETE
-    path('exercises/<int:exercise_id>/publish/', todo, name='exercise-publish'), # POST publier
-    path('exercises/<int:exercise_id>/submissions/', todo, name='exercise-submissions'),  # POST répondre
+    path('exercises/', views.ExerciseListCreateView.as_view(), name='exercise-list'),                              # GET liste, POST création
+    path('exercises/<int:exercise_id>/', views.ExerciseDetailView.as_view(), name='exercise-detail'),          # GET, PATCH, DELETE
+    path('exercises/<int:exercise_id>/publish/', views.ExercisePublishView.as_view(), name='exercise-publish'), # POST publier
+    path('exercises/<int:exercise_id>/submissions/', views.ExerciseSubmissionView.as_view(), name='exercise-submissions'),  # POST répondre
 ]
