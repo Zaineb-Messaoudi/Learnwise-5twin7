@@ -1,24 +1,27 @@
 """
 Vues du module `assessment`.
 
-Étape 2 : les 3 routes de quiz sont réelles (liste/création, détail/modification/
-suppression, publication). Les autres routes pointent encore vers
-`NotImplementedView` (réponse 501) et seront remplacées aux étapes suivantes.
+Étape 2 : routes de quiz (liste/création, détail/modification/suppression, publication).
+Étape 3 : routes de tentatives (démarrer, sauvegarder, soumettre, évaluation).
+Les routes restantes (exercices, génération) pointent encore vers `NotImplementedView` (501).
 """
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.decorators import api_view
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import PublishStatus, Quiz
-from .permissions import IsTeacher, IsTeacherOrReadOnly, is_admin, is_teacher
+from .models import PublishStatus, Quiz, QuizAttempt
+from .permissions import IsStudent, IsTeacher, IsTeacherOrReadOnly, is_admin, is_teacher
+from .scoring import evaluate_attempt
 from .serializers import (
+    AnswerMapSerializer, AttemptSerializer, EvaluationSerializer,
     QuizDetailStudentSerializer, QuizDetailTeacherSerializer, QuizListSerializer,
-    QuizWriteSerializer, publish_errors,
+    QuizWriteSerializer, publish_errors, save_answers,
 )
 
 
@@ -165,3 +168,116 @@ class QuizPublishView(ContractErrorsMixin, APIView):
         quiz.published_at = timezone.now()
         quiz.save(update_fields=['status', 'published_at', 'updated_at'])
         return detail_response(request, quiz)
+
+
+# ===========================================================================
+# Étape 3 : tentatives (réservées aux étudiants, privées à chaque étudiant)
+# ===========================================================================
+def get_published_quiz(quiz_id):
+    """Quiz publié avec questions et choix préchargés ; 404 sinon (brouillon ou inconnu)."""
+    return get_object_or_404(
+        Quiz.objects.prefetch_related('questions__choices'),
+        pk=quiz_id, status=PublishStatus.PUBLISHED,
+    )
+
+
+def attempts_of(user):
+    """Tentatives de CET étudiant uniquement (un étudiant ne voit jamais celles des autres)."""
+    return QuizAttempt.objects.filter(user=user).select_related('evaluation').prefetch_related('answers')
+
+
+def attempt_response(request, attempt, quiz, http_status=status.HTTP_200_OK):
+    """Recharge la tentative (cache périmé après écriture) et renvoie sa représentation."""
+    attempt = attempts_of(request.user).get(pk=attempt.pk)
+    data = AttemptSerializer(attempt, context={'request': request, 'quiz': quiz}).data
+    return Response(data, status=http_status)
+
+
+class AttemptListCreateView(ContractErrorsMixin, generics.ListCreateAPIView):
+    """GET : mes tentatives sur ce quiz. POST : démarrer (ou reprendre la tentative en cours)."""
+    permission_classes = [IsAuthenticated, IsStudent]
+    serializer_class = AttemptSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['quiz'] = get_published_quiz(self.kwargs['quiz_id'])
+        return context
+
+    def get_queryset(self):
+        get_published_quiz(self.kwargs['quiz_id'])  # 404 si le quiz n'est pas publié
+        return attempts_of(self.request.user).filter(quiz_id=self.kwargs['quiz_id'])
+
+    def create(self, request, *args, **kwargs):
+        quiz = get_published_quiz(kwargs['quiz_id'])
+        # get_or_create : renvoie la tentative en cours si elle existe, sinon en crée une.
+        # La contrainte unique de la base protège contre deux clics simultanés.
+        attempt, created = QuizAttempt.objects.get_or_create(
+            user=request.user, quiz=quiz, status=QuizAttempt.Status.IN_PROGRESS,
+        )
+        # Contrat : 201 pour une nouvelle tentative, 200 si on renvoie celle déjà en cours.
+        return attempt_response(
+            request, attempt, quiz,
+            status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class AttemptDetailView(ContractErrorsMixin, generics.GenericAPIView):
+    """GET : reprendre une tentative. PATCH : sauvegarder les réponses sans soumettre."""
+    permission_classes = [IsAuthenticated, IsStudent]
+    serializer_class = AttemptSerializer
+
+    def get_attempt(self):
+        return get_object_or_404(
+            attempts_of(self.request.user),
+            pk=self.kwargs['attempt_id'], quiz_id=self.kwargs['quiz_id'],
+        )
+
+    def get(self, request, quiz_id, attempt_id):
+        attempt = self.get_attempt()
+        return attempt_response(request, attempt, get_published_quiz(quiz_id))
+
+    def patch(self, request, quiz_id, attempt_id):
+        attempt = self.get_attempt()
+        if attempt.status != QuizAttempt.Status.IN_PROGRESS:
+            raise Conflict('This attempt has already been submitted.')
+        quiz = get_published_quiz(quiz_id)
+        serializer = AnswerMapSerializer(data=request.data, context={'quiz': quiz})
+        serializer.is_valid(raise_exception=True)
+        save_answers(attempt, serializer.validated_data['answers'])
+        return attempt_response(request, attempt, quiz)
+
+
+class AttemptSubmitView(ContractErrorsMixin, APIView):
+    """POST : corrige la tentative et renvoie l'évaluation. On peut joindre les dernières réponses."""
+    permission_classes = [IsAuthenticated, IsStudent]
+
+    def post(self, request, quiz_id, attempt_id):
+        quiz = get_published_quiz(quiz_id)
+        with transaction.atomic():
+            # select_for_update : deux soumissions simultanées ne corrigent pas deux fois.
+            attempt = get_object_or_404(
+                QuizAttempt.objects.select_for_update().filter(user=request.user),
+                pk=attempt_id, quiz_id=quiz_id,
+            )
+            if attempt.status != QuizAttempt.Status.IN_PROGRESS:
+                raise Conflict('This attempt has already been submitted.')
+            if 'answers' in request.data:  # réponses finales envoyées avec la soumission
+                serializer = AnswerMapSerializer(data=request.data, context={'quiz': quiz})
+                serializer.is_valid(raise_exception=True)
+                save_answers(attempt, serializer.validated_data['answers'])
+            evaluation = evaluate_attempt(attempt)
+        return Response(EvaluationSerializer(evaluation).data, status=status.HTTP_200_OK)
+
+
+class AttemptEvaluationView(ContractErrorsMixin, APIView):
+    """GET : relire le score, le feedback par question et les prochaines étapes."""
+    permission_classes = [IsAuthenticated, IsStudent]
+
+    def get(self, request, quiz_id, attempt_id):
+        attempt = get_object_or_404(
+            attempts_of(request.user), pk=attempt_id, quiz_id=quiz_id,
+        )
+        evaluation = getattr(attempt, 'evaluation', None)
+        if evaluation is None:
+            raise NotFound('This attempt has not been submitted yet.')
+        return Response(EvaluationSerializer(evaluation).data)

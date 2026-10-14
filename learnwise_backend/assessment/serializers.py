@@ -1,5 +1,5 @@
 """
-Serializers du module `assessment` (étape 2 : quiz).
+Serializers du module `assessment` (étape 2 : quiz, étape 3 : tentatives).
 
 Deux représentations en lecture :
 - professeur : voit `is_correct` et `explanation` (pour relire le quiz) ;
@@ -14,7 +14,9 @@ from rest_framework import serializers
 
 from content.models import Course
 
-from .models import Choice, Difficulty, Question, QuestionType, Quiz
+from .models import (
+    Answer, Choice, Difficulty, Evaluation, Question, QuestionType, Quiz, QuizAttempt,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -183,3 +185,121 @@ def publish_errors(quiz):
         if len(correct) != 1:
             errors.append(f'Question {number} needs exactly 1 correct choice.')
     return errors
+
+
+# ---------------------------------------------------------------------------
+# Étape 3 : tentatives, réponses et évaluation
+# ---------------------------------------------------------------------------
+class AttemptSerializer(serializers.ModelSerializer):
+    """
+    Une tentative avec sa "answer map" : {id_question: id_choix}.
+    Les questions sans réponse figurent explicitement avec la valeur null
+    (c'est ce que demande le contrat). Si la tentative est corrigée, le
+    résumé du score est ajouté.
+    """
+    id = serializers.CharField(read_only=True)
+    quiz_id = serializers.SerializerMethodField()
+    answers = serializers.SerializerMethodField()
+    score = serializers.SerializerMethodField()
+    correct_answers = serializers.SerializerMethodField()
+    total_questions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = QuizAttempt
+        fields = [
+            'id', 'quiz_id', 'status', 'started_at', 'submitted_at',
+            'answers', 'score', 'correct_answers', 'total_questions',
+        ]
+
+    def get_quiz_id(self, obj):
+        return str(obj.quiz_id)
+
+    def get_answers(self, obj):
+        # Le quiz (avec ses questions) est passé en contexte pour éviter une requête par tentative.
+        quiz = self.context.get('quiz') or obj.quiz
+        selected = {a.question_id: a.selected_choice_id for a in obj.answers.all()}
+        return {
+            str(question.id): (str(selected[question.id]) if selected.get(question.id) else None)
+            for question in quiz.questions.all()
+        }
+
+    def _evaluation(self, obj):
+        # getattr avec défaut : une tentative non corrigée n'a pas d'évaluation.
+        return getattr(obj, 'evaluation', None)
+
+    def get_score(self, obj):
+        evaluation = self._evaluation(obj)
+        return int(evaluation.score) if evaluation else None
+
+    def get_correct_answers(self, obj):
+        evaluation = self._evaluation(obj)
+        return evaluation.correct_answers if evaluation else None
+
+    def get_total_questions(self, obj):
+        evaluation = self._evaluation(obj)
+        return evaluation.total_questions if evaluation else None
+
+
+class AnswerMapSerializer(serializers.Serializer):
+    """
+    Corps de PATCH /attempts/<id>/ : {"answers": {"<id_question>": <id_choix> | null}}.
+    Vérifie que chaque question appartient au quiz et que chaque choix
+    appartient bien à SA question. Le quiz est fourni via le contexte.
+    """
+    answers = serializers.DictField(child=serializers.IntegerField(allow_null=True))
+
+    def validate_answers(self, answers):
+        questions = {q.id: q for q in self.context['quiz'].questions.all()}
+        valid_choices = {qid: {c.id for c in q.choices.all()} for qid, q in questions.items()}
+
+        cleaned, errors = {}, {}
+        for key, choice_id in answers.items():
+            try:
+                question_id = int(key)
+            except (TypeError, ValueError):
+                errors[key] = ['Question ids must be numbers.']
+                continue
+            if question_id not in questions:
+                errors[key] = ['This question does not belong to this quiz.']
+            elif choice_id is not None and choice_id not in valid_choices[question_id]:
+                errors[key] = ['This choice does not belong to this question.']
+            else:
+                cleaned[question_id] = choice_id  # None = on efface la réponse
+        if errors:
+            raise serializers.ValidationError(errors)
+        return cleaned
+
+
+def save_answers(attempt, cleaned_answers):
+    """
+    Enregistre (ou met à jour) les réponses envoyées ; les questions non
+    mentionnées restent inchangées. `is_correct` n'est calculé qu'à la soumission.
+    """
+    for question_id, choice_id in cleaned_answers.items():
+        Answer.objects.update_or_create(
+            attempt=attempt, question_id=question_id,
+            defaults={'selected_choice_id': choice_id, 'is_correct': False},
+        )
+
+
+class EvaluationSerializer(serializers.ModelSerializer):
+    """Résultat d'une tentative corrigée, au format du contrat."""
+    attempt_id = serializers.SerializerMethodField()
+    quiz_id = serializers.SerializerMethodField()
+    score = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Evaluation
+        fields = [
+            'attempt_id', 'quiz_id', 'score', 'correct_answers', 'total_questions',
+            'feedback', 'question_feedback', 'next_steps', 'created_at',
+        ]
+
+    def get_attempt_id(self, obj):
+        return str(obj.attempt_id)
+
+    def get_quiz_id(self, obj):
+        return str(obj.attempt.quiz_id)
+
+    def get_score(self, obj):
+        return int(obj.score)  # compte, pas pourcentage

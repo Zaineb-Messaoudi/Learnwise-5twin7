@@ -22,6 +22,19 @@ def is_admin(user):
     return bool(user and user.is_authenticated and getattr(user, 'role', None) == 'admin')
 
 
+def is_student(user):
+    """True pour un utilisateur connecté qui n'est ni professeur ni admin."""
+    return bool(user and user.is_authenticated and not is_teacher(user))
+
+
+class IsStudent(BasePermission):
+    """Réservé aux étudiants : seuls eux passent les quiz (les profs relisent, ne passent pas)."""
+    message = 'Only students can take quizzes.'
+
+    def has_permission(self, request, view):
+        return is_student(request.user)
+
+
 class IsTeacher(BasePermission):
     """Réservé aux professeurs/admins (ex : publier un quiz)."""
     message = 'Only teachers can perform this action.'
