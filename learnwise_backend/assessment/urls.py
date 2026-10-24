@@ -2,15 +2,11 @@
 Routes du module `assessment`, montées sous /api/v1/assessment/ par le projet.
 Elles suivent exactement le tableau du fichier docs/frontend-backend-contract.md.
 
-Étapes 2, 3 et 5 : quiz, tentatives et exercices sont réels ; la génération IA
-pointe encore vers NotImplementedView (501).
+Toutes les routes du contrat sont réelles (quiz, tentatives, exercices, génération IA).
 """
 from django.urls import path
 
 from . import views
-
-# Raccourci : même vue provisoire pour toutes les routes.
-todo = views.NotImplementedView.as_view()
 
 urlpatterns = [
     path('', views.api_root, name='assessment-root'),
@@ -26,9 +22,9 @@ urlpatterns = [
     path('quizzes/<int:quiz_id>/attempts/<int:attempt_id>/submit/', views.AttemptSubmitView.as_view(), name='attempt-submit'),      # POST soumettre
     path('quizzes/<int:quiz_id>/attempts/<int:attempt_id>/evaluation/', views.AttemptEvaluationView.as_view(), name='attempt-evaluation'),  # GET résultat
 
-    # --- Génération IA (Gemini) ---
-    path('generations/', todo, name='generation-create'),                        # POST lancer une génération
-    path('generations/<int:generation_id>/', todo, name='generation-detail'),    # GET suivre l'état (polling)
+    # --- Génération IA (Groq / Ollama) ---
+    path('generations/', views.GenerationCreateView.as_view(), name='generation-create'),                        # POST lancer une génération
+    path('generations/<int:generation_id>/', views.GenerationDetailView.as_view(), name='generation-detail'),    # GET suivre l'état (polling)
 
     # --- Exercices ---
     path('exercises/', views.ExerciseListCreateView.as_view(), name='exercise-list'),                              # GET liste, POST création

@@ -1,5 +1,5 @@
 """
-Serializers du module `assessment` (étape 2 : quiz, étape 3 : tentatives, étape 5 : exercices).
+Serializers du module `assessment` (étape 2 : quiz, 3 : tentatives, 5 : exercices, 6 : génération IA).
 
 Deux représentations en lecture :
 - professeur : voit `is_correct` et `explanation` (pour relire le quiz) ;
@@ -12,11 +12,12 @@ donc tous les ids en texte ("12" et non 12).
 from django.db import transaction
 from rest_framework import serializers
 
-from content.models import Course
+from content.models import Course, CourseMaterial
 
+from .generation import material_text
 from .models import (
     Answer, Choice, Difficulty, Evaluation, Exercise, ExerciseChoice, ExerciseSubmission,
-    Question, QuestionType, Quiz, QuizAttempt,
+    GenerationJob, Question, QuestionType, Quiz, QuizAttempt,
 )
 from .permissions import is_admin
 
@@ -447,3 +448,61 @@ class ExerciseSubmissionSerializer(serializers.ModelSerializer):
 
     def get_answer(self, obj):
         return str(obj.selected_choice_id) if obj.selected_choice_id else None
+
+
+# ---------------------------------------------------------------------------
+# Étape 6 : génération IA
+# ---------------------------------------------------------------------------
+class GenerationRequestSerializer(serializers.Serializer):
+    """
+    Corps de POST /generations/ :
+    {course_id, kind, question_count, difficulty, source_text?, material_ids?}
+    Il faut au moins un texte : `source_text` (même un simple sujet) ou des supports du cours
+    qui ont déjà une transcription ou un résumé.
+    """
+    course_id = serializers.PrimaryKeyRelatedField(source='course', queryset=Course.objects.all())
+    kind = serializers.ChoiceField(choices=GenerationJob.Kind.choices, default=GenerationJob.Kind.QUIZ)
+    question_count = serializers.IntegerField(min_value=1, max_value=20, default=5)
+    difficulty = serializers.ChoiceField(choices=Difficulty.choices, default=Difficulty.MEDIUM)
+    source_text = serializers.CharField(required=False, allow_blank=True, default='', max_length=20000)
+    material_ids = serializers.ListField(
+        child=serializers.IntegerField(), required=False, default=list, max_length=20,
+    )
+
+    def validate(self, attrs):
+        course, material_ids = attrs['course'], attrs['material_ids']
+        if material_ids:
+            # Les supports doivent appartenir au cours choisi (pas ceux d'un autre cours).
+            found = set(
+                CourseMaterial.objects.filter(course=course, id__in=material_ids)
+                .values_list('id', flat=True)
+            )
+            missing = sorted(set(material_ids) - found)
+            if missing:
+                raise serializers.ValidationError(
+                    {'material_ids': [f'These materials do not belong to this course: {missing}.']}
+                )
+        if not attrs['source_text'].strip() and not material_text(course, material_ids):
+            raise serializers.ValidationError({
+                'source_text': ['Provide source_text, or select materials that already have a transcription or summary.'],
+            })
+        return attrs
+
+
+class GenerationSerializer(serializers.ModelSerializer):
+    """
+    État d'un job, tel que le frontend le lit : `status` pour le polling, `error_message` en cas
+    d'échec, `result.questions` une fois terminé.
+    """
+    id = serializers.CharField(read_only=True)
+    course_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GenerationJob
+        fields = [
+            'id', 'kind', 'course_id', 'question_count', 'difficulty',
+            'status', 'error_message', 'result', 'created_at', 'finished_at',
+        ]
+
+    def get_course_id(self, obj):
+        return str(obj.course_id) if obj.course_id else None

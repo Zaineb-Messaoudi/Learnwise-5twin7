@@ -248,7 +248,9 @@ class ExerciseSubmission(models.Model):
 
 
 # ---------------------------------------------------------------------------
-# Génération IA (Gemini) : tâche suivie par l'endpoint /generations/{id}/
+# Génération IA (Groq / Ollama) : tâche suivie par l'endpoint /generations/{id}/
+# Le job ne crée AUCUN quiz : il stocke une proposition de questions que le
+# professeur relit/modifie dans le frontend, puis enregistre via POST /quizzes/.
 # ---------------------------------------------------------------------------
 class GenerationJob(models.Model):
     class Kind(models.TextChoices):
@@ -256,8 +258,10 @@ class GenerationJob(models.Model):
         EXERCISE = 'exercise', 'Exercise'
 
     class Status(models.TextChoices):
+        # Les valeurs sont celles que le frontend attend : il fait du polling
+        # tant que le statut vaut "queued" ou "processing".
         QUEUED = 'queued', 'Queued'
-        RUNNING = 'running', 'Running'
+        PROCESSING = 'processing', 'Processing'
         COMPLETED = 'completed', 'Completed'
         FAILED = 'failed', 'Failed'
 
@@ -278,10 +282,10 @@ class GenerationJob(models.Model):
     )
     # Suivi du traitement (le front fait du polling sur ce statut).
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.QUEUED)
+    # Message lisible par le professeur si la génération échoue (jamais de détail technique).
     error_message = models.TextField(blank=True)
-    # Brouillon créé à la fin de la génération (relu puis publié par le professeur).
-    quiz = models.ForeignKey(Quiz, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
-    exercise = models.ForeignKey(Exercise, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    # Résultat une fois terminé : {"questions": [{prompt, choices, correct_index, explanation}]}
+    result = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 

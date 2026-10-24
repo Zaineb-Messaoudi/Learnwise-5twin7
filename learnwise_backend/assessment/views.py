@@ -4,7 +4,7 @@ Vues du module `assessment`.
 Étape 2 : routes de quiz (liste/création, détail/modification/suppression, publication).
 Étape 3 : routes de tentatives (démarrer, sauvegarder, soumettre, évaluation).
 Étape 5 : routes d'exercices (liste/création, détail, publication, soumission d'une réponse).
-La route de génération IA pointe encore vers `NotImplementedView` (501).
+Étape 6 : génération IA (lancer un job, suivre son état par polling).
 """
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -16,15 +16,16 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Exercise, ExerciseSubmission, PublishStatus, Quiz, QuizAttempt
+from .generation import ACTIVE_STATUSES, MAX_ACTIVE_JOBS_PER_USER, dispatch, fail_stale_jobs
+from .models import Exercise, ExerciseSubmission, GenerationJob, PublishStatus, Quiz, QuizAttempt
 from .permissions import IsStudent, IsTeacher, IsTeacherOrReadOnly, is_admin, is_teacher
 from .scoring import evaluate_attempt, grade_exercise
 from .serializers import (
     AnswerMapSerializer, AttemptSerializer, EvaluationSerializer, ExerciseAnswerSerializer,
     ExerciseStudentSerializer, ExerciseSubmissionSerializer, ExerciseTeacherSerializer,
-    ExerciseWriteSerializer, QuizDetailStudentSerializer, QuizDetailTeacherSerializer,
-    QuizListSerializer, QuizWriteSerializer, exercise_publish_errors, publish_errors,
-    save_answers,
+    ExerciseWriteSerializer, GenerationRequestSerializer, GenerationSerializer,
+    QuizDetailStudentSerializer, QuizDetailTeacherSerializer, QuizListSerializer,
+    QuizWriteSerializer, exercise_publish_errors, publish_errors, save_answers,
 )
 
 
@@ -36,15 +37,6 @@ def api_root(request):
         'exercises': request.build_absolute_uri('exercises/'),
         'generations': request.build_absolute_uri('generations/'),
     })
-
-
-class NotImplementedView(APIView):
-    """Vue temporaire (501) pour les routes pas encore codées."""
-
-    def _not_implemented(self, request, *args, **kwargs):
-        return Response({'detail': 'Not implemented yet.'}, status=status.HTTP_501_NOT_IMPLEMENTED)
-
-    get = post = patch = delete = _not_implemented
 
 
 # ---------------------------------------------------------------------------
@@ -419,3 +411,59 @@ class ExerciseSubmissionView(ContractErrorsMixin, APIView):
             is_correct=is_correct, feedback=feedback,
         )
         return Response(ExerciseSubmissionSerializer(submission).data, status=status.HTTP_201_CREATED)
+
+
+# ===========================================================================
+# Étape 6 : génération IA (réservée aux professeurs)
+# ===========================================================================
+class TooManyRequests(APIException):
+    """HTTP 429 : trop de générations en cours pour cet utilisateur."""
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_detail = 'Too many generations in progress.'
+    default_code = 'too_many_requests'
+
+
+class GenerationCreateView(ContractErrorsMixin, APIView):
+    """POST : valide la demande, crée un job "queued" et lance le travail en arrière-plan."""
+    permission_classes = [IsAuthenticated, IsTeacher]
+
+    def post(self, request):
+        serializer = GenerationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        # Chaque génération consomme le quota de la clé API : on limite les jobs simultanés.
+        fail_stale_jobs()  # libère d'abord les jobs bloqués, sinon ils compteraient à tort
+        active = GenerationJob.objects.filter(
+            requested_by=request.user, status__in=ACTIVE_STATUSES,
+        ).count()
+        if active >= MAX_ACTIVE_JOBS_PER_USER:
+            raise TooManyRequests(
+                'You already have several generations in progress. Wait for one to finish.'
+            )
+
+        job = GenerationJob.objects.create(
+            requested_by=request.user,
+            course=data['course'],
+            kind=data['kind'],
+            question_count=data['question_count'],
+            difficulty=data['difficulty'],
+            source_text=data['source_text'].strip(),
+            material_ids=data['material_ids'],
+        )
+        dispatch(job)
+        job.refresh_from_db()  # le statut a pu changer si le traitement est déjà fini
+        return Response(GenerationSerializer(job).data, status=status.HTTP_201_CREATED)
+
+
+class GenerationDetailView(ContractErrorsMixin, APIView):
+    """GET : état du job (polling) et, une fois "completed", les questions proposées."""
+    permission_classes = [IsAuthenticated, IsTeacher]
+
+    def get(self, request, generation_id):
+        fail_stale_jobs()
+        jobs = GenerationJob.objects.all() if is_admin(request.user) else GenerationJob.objects.filter(
+            requested_by=request.user,  # un professeur ne voit que ses propres générations
+        )
+        job = get_object_or_404(jobs, pk=generation_id)
+        return Response(GenerationSerializer(job).data)
