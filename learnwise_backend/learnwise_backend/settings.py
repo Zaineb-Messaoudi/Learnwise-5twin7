@@ -98,13 +98,13 @@ WSGI_APPLICATION = 'learnwise_backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DB_CONNECTION = os.getenv('DB_CONNECTION', 'sqlite')
+DB_CONNECTION = os.getenv('DB_CONNECTION', 'mysql')
 
 if DB_CONNECTION == 'mysql':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
-            'NAME': os.getenv('DB_DATABASE', 'Learnwise'),
+            'NAME': os.getenv('DB_DATABASE', 'learnwise'),
             'USER': os.getenv('DB_USERNAME', 'root'),
             'PASSWORD': os.getenv('DB_PASSWORD', ''),
             'HOST': os.getenv('DB_HOST', 'localhost'),
@@ -125,6 +125,17 @@ else:
             'CONN_MAX_AGE': 60,
         }
     }
+
+# Content app — file upload validation (free local storage, no credit card)
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 Mo max par fichier
+ALLOWED_MATERIAL_EXTENSIONS = [
+    '.pdf', '.doc', '.docx', '.ppt', '.pptx',
+    '.mp3', '.wav', '.ogg', '.m4a',
+    '.mp4', '.mov', '.avi',
+    '.zip', '.rar', '.7z',
+    '.jpg', '.jpeg', '.png', '.gif', '.webp',
+    '.txt', '.csv', '.xlsx',
+]
 
 
 # Password validation
@@ -269,6 +280,23 @@ CHANNEL_LAYERS = {
 # Media files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# --- Supabase Storage (S3-compatible, gratuit, sans carte bancaire) ---
+USE_S3 = os.getenv('USE_S3', 'False').lower() == 'true'
+
+if USE_S3:
+    if 'storages' not in INSTALLED_APPS:
+        INSTALLED_APPS += ['storages']
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+
+    AWS_ACCESS_KEY_ID = os.getenv('SUPABASE_SECRET_KEY')
+    AWS_SECRET_ACCESS_KEY = os.getenv('SUPABASE_SECRET_KEY')
+    AWS_STORAGE_BUCKET_NAME = os.getenv('SUPABASE_BUCKET', 'course-materials')
+    _project_url = os.getenv('SUPABASE_PROJECT_URL', '')
+    AWS_S3_ENDPOINT_URL = _project_url.rstrip('/') + '/storage/v1/s3' if _project_url else None
+    AWS_S3_REGION_NAME = os.getenv('SUPABASE_REGION', 'us-east-1')
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_DEFAULT_ACL = None
 
 # Frontend URL for email links
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
