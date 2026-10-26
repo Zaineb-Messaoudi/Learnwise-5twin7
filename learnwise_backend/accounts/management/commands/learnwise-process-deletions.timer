@@ -1,0 +1,18 @@
+# Learnwise Account Deletion Processor - systemd timer
+
+# To install on production server:
+# 1. Copy this file to /etc/systemd/system/learnwise-process-deletions.timer
+# 2. Copy learnwise-process-deletions.service to /etc/systemd/system/learnwise-process-deletions.service
+# 3. Run: systemctl daemon-reload
+# 4. Run: systemctl enable --now learnwise-process-deletions.timer
+
+[Unit]
+Description=Daily timer to process expired Learnwise account deletions
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

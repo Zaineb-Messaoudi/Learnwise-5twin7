@@ -21,13 +21,13 @@ class UserAdmin(BaseUserAdmin):
     list_filter = ['role', 'is_active', 'is_staff', 'is_superuser', 'email_verified', 'two_factor_enabled', 'date_joined']
     search_fields = ['email', 'username', 'first_name', 'last_name']
     ordering = ['-date_joined']
-    readonly_fields = ['date_joined', 'last_login', 'email_verified', 'password_changed_at']
+    readonly_fields = ['date_joined', 'last_login', 'email_verified', 'password_changed_at', 'totp_secret', 'backup_codes', 'failed_login_attempts', 'locked_until']
 
     fieldsets = (
         (None, {'fields': ('email', 'username', 'password')}),
         ('Personal info', {'fields': ('first_name', 'last_name', 'avatar', 'phone', 'bio')}),
         ('Roles & Permissions', {'fields': ('role', 'is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions', 'email_verified')}),
-        ('Security', {'fields': ('two_factor_enabled', 'totp_secret', 'backup_codes', 'failed_login_attempts', 'locked_until', 'password_changed_at')}),
+        ('Security', {'fields': ('two_factor_enabled', 'failed_login_attempts', 'locked_until', 'password_changed_at')}),
         ('Terms & Consent', {'fields': ('terms_accepted_at', 'terms_version', 'privacy_accepted_at', 'marketing_consent', 'marketing_consent_at')}),
         ('Email Change', {'fields': ('pending_email', 'email_change_token', 'email_change_requested_at')}),
         ('Important dates', {'fields': ('last_login', 'date_joined')}),

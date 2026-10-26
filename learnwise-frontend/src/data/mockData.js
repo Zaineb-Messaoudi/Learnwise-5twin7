@@ -13,7 +13,7 @@ export const activities = [
     { icon: '★', title: 'Earned the “Quick learner” badge', meta: 'Achievements · 2 days ago', tone: 'orange' },
 ];
 export const navStudent = [
-    { label: 'Overview', path: '/student/dashboard', icon: 'grid' }, { label: 'My learning', path: '/student/courses', icon: 'book' }, { label: 'Notebooks', path: '/student/notebooks', icon: 'folder' }, { label: 'AI assistant', path: '/student/assistant', icon: 'spark' }, { label: 'Quizzes', path: '/student/quizzes', icon: 'quiz' }, { label: 'Exercises', path: '/student/exercises', icon: 'target' }, { label: 'Progress', path: '/student/progress', icon: 'chart' },
+    { label: 'Overview', path: '/student/dashboard', icon: 'grid' }, { label: 'My learning', path: '/student/courses', icon: 'book' }, { label: 'Notebooks', path: '/student/notebooks', icon: 'folder' }, { label: 'AI assistant', path: '/student/assistant', icon: 'spark' }, { label: 'Quizzes', path: '/student/quizzes', icon: 'quiz' }, { label: 'Exercises', path: '/student/exercises', icon: 'target' }, { label: 'Progress', path: '/student/progress', icon: 'chart' }, { label: 'Profile', path: '/student/profile', icon: 'user' }, { label: 'Security', path: '/student/security', icon: 'lock' },
 ];
 export const navTeacher = [
     { label: 'Overview', path: '/teacher/dashboard', icon: 'grid' }, { label: 'Courses', path: '/teacher/courses', icon: 'book' }, { label: 'Materials', path: '/teacher/materials', icon: 'folder' }, { label: 'AI generation', path: '/teacher/ai-generation', icon: 'spark' }, { label: 'Quizzes', path: '/teacher/quizzes', icon: 'quiz' }, { label: 'Students', path: '/teacher/students', icon: 'users' }, { label: 'Analytics', path: '/teacher/analytics', icon: 'chart' },

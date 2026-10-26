@@ -15,6 +15,10 @@ export function AuthProvider({ children }) {
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    // Step-up re-authentication: a face-authenticated session (weaker, no liveness)
+    // cannot perform sensitive operations until the user re-authenticates with a password.
+    const [stepUpRequired, setStepUpRequired] = useState(false);
+    const [stepUpError, setStepUpError] = useState(null);
 
     const clearSession = () => {
         setUser(null);
@@ -37,6 +41,22 @@ export function AuthProvider({ children }) {
         window.localStorage.setItem('learnwise-role', next.role);
     };
 
+    const getUser = async () => {
+        try {
+            const response = await authApi.me();
+            if (response) {
+                setUser(response);
+                window.localStorage.setItem('learnwise:user', JSON.stringify(response));
+                window.localStorage.setItem('learnwise-role', response.role);
+                return { success: true, data: response };
+            }
+            return { success: false, error: 'No user data returned' };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to fetch user profile.';
+            return { success: false, error: msg };
+        }
+    };
+
     const logout = async () => {
         const refresh = window.localStorage.getItem('learnwise:refresh-token');
         if (refresh) {
@@ -56,6 +76,9 @@ export function AuthProvider({ children }) {
             await authApi.changePassword(payload);
             return { success: true };
         } catch (cause) {
+            if (handleStepUpError(cause)) {
+                return { success: false, error: stepUpError, requiresStepUp: true };
+            }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to change password.';
             setError(msg);
             return { success: false, error: msg };
@@ -151,7 +174,14 @@ export function AuthProvider({ children }) {
             if (response?.user && response?.access && response?.refresh) {
                 login(response.user, { access: response.access, refresh: response.refresh });
             }
-            return { success: true, isNewUser: response?.is_new_user };
+            return { 
+                success: true, 
+                isNewUser: response?.is_new_user,
+                needsProfileCompletion: response?.needs_profile_completion,
+                user: response?.user,
+                access: response?.access,
+                refresh: response?.refresh
+            };
         } catch (cause) {
             const msg = cause?.response?.data?.detail || cause.message || `Failed to sign in with ${provider}.`;
             setError(msg);
@@ -177,6 +207,25 @@ export function AuthProvider({ children }) {
         }
     };
 
+    const get2FAStatus = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.get2FAStatus();
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to load 2FA status.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const getUserSessions = async () => {
+        return listSessions();
+    };
+
     const enable2FA = async (payload) => {
         setLoading(true);
         setError(null);
@@ -199,6 +248,9 @@ export function AuthProvider({ children }) {
             await authApi.disable2FA(payload);
             return { success: true };
         } catch (cause) {
+            if (handleStepUpError(cause)) {
+                return { success: false, error: stepUpError, requiresStepUp: true };
+            }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to disable 2FA.';
             setError(msg);
             return { success: false, error: msg };
@@ -215,6 +267,9 @@ export function AuthProvider({ children }) {
             await authApi.requestEmailChange(newEmail);
             return { success: true };
         } catch (cause) {
+            if (handleStepUpError(cause)) {
+                return { success: false, error: stepUpError, requiresStepUp: true };
+            }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to request email change.';
             setError(msg);
             return { success: false, error: msg };
@@ -230,6 +285,9 @@ export function AuthProvider({ children }) {
             await authApi.confirmEmailChange(token);
             return { success: true };
         } catch (cause) {
+            if (handleStepUpError(cause)) {
+                return { success: false, error: stepUpError, requiresStepUp: true };
+            }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to confirm email change.';
             setError(msg);
             return { success: false, error: msg };
@@ -308,6 +366,70 @@ export function AuthProvider({ children }) {
             return { success: true };
         } catch (cause) {
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to remove avatar.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Face recognition
+    const registerFace = async (descriptor, qualityScore, enrollmentImage, password) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.registerFace(descriptor, qualityScore, enrollmentImage, password);
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to register face.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const verifyFace = async (descriptor) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.verifyFace(descriptor);
+            if (response?.user && response?.access && response?.refresh) {
+                login(response.user, { access: response.access, refresh: response.refresh });
+            }
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Face verification failed.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const getFaceProfile = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.getFaceProfile();
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to load face profile.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const deleteFaceProfile = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            await authApi.deleteFaceProfile();
+            return { success: true };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to delete face profile.';
             setError(msg);
             return { success: false, error: msg };
         } finally {
@@ -447,6 +569,9 @@ export function AuthProvider({ children }) {
             const response = await authApi.requestAccountDeletion(payload);
             return { success: true, message: response.detail };
         } catch (cause) {
+            if (handleStepUpError(cause)) {
+                return { success: false, error: stepUpError, requiresStepUp: true };
+            }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to request account deletion.';
             setError(msg);
             return { success: false, error: msg };
@@ -462,6 +587,9 @@ export function AuthProvider({ children }) {
             await authApi.confirmAccountDeletion(payload);
             return { success: true };
         } catch (cause) {
+            if (handleStepUpError(cause)) {
+                return { success: false, error: stepUpError, requiresStepUp: true };
+            }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to confirm account deletion.';
             setError(msg);
             return { success: false, error: msg };
@@ -485,6 +613,48 @@ export function AuthProvider({ children }) {
         }
     };
 
+    // Detect a step-up-required error (403 with requires_step_up) from a sensitive
+    // operation performed with a face-authenticated session.
+    const handleStepUpError = (cause) => {
+        if (cause?.response?.data?.requires_step_up === true) {
+            const msg = cause.response.data.detail || 'Please re-authenticate with your password.';
+            setStepUpRequired(true);
+            setStepUpError(msg);
+            return true;
+        }
+        return false;
+    };
+
+    // Re-authenticate with a password to upgrade the session from face to password
+    // auth, unlocking sensitive operations again.
+    const stepUpWithPassword = async (password) => {
+        setLoading(true);
+        setError(null);
+        setStepUpRequired(false);
+        setStepUpError(null);
+        try {
+            const response = await authApi.stepUp(password);
+            if (response?.access && response?.refresh) {
+                // Update tokens in storage without creating a new session
+                window.localStorage.setItem('learnwise:access-token', response.access);
+                window.localStorage.setItem('learnwise:refresh-token', response.refresh);
+                return { success: true };
+            }
+            throw new Error('Step-up authentication failed.');
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Step-up authentication failed.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const clearStepUp = () => {
+        setStepUpRequired(false);
+        setStepUpError(null);
+    };
+
     useEffect(() => {
         const handleExpired = () => clearSession();
         window.addEventListener('learnwise:auth-expired', handleExpired);
@@ -495,6 +665,7 @@ export function AuthProvider({ children }) {
         user,
         login,
         updateUser,
+        getUser,
         logout,
         changePassword,
         updateProfile,
@@ -509,10 +680,16 @@ export function AuthProvider({ children }) {
         requestEmailChange,
         confirmEmailChange,
         listSessions,
+        getUserSessions,
+        get2FAStatus,
         revokeSession,
         revokeAllSessions,
         uploadAvatar,
         removeAvatar,
+        registerFace,
+        verifyFace,
+        getFaceProfile,
+        deleteFaceProfile,
         getSecurityEvents,
         getActivityLogs,
         getTerms,
@@ -527,8 +704,12 @@ export function AuthProvider({ children }) {
         isAuthenticated: Boolean(user),
         loading,
         error,
+        stepUpRequired,
+        stepUpError,
+        stepUpWithPassword,
+        clearStepUp,
         clearError: () => setError(null),
-    }), [user, loading, error]);
+    }), [user, loading, error, stepUpRequired, stepUpError]);
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -9,5 +9,6 @@ function CourseCard({ course }) { return <Link to={`/student/courses/${course.id
 function PaperclipIcon() { return <Upload size={16}/>; }
 function CalendarIcon() { return <Clock3 size={15}/>; }
 function DataTable({ teacher = false }) { const rows = teacher ? [['Olivia Martin', 'AI & Machine Learning', '78%', 'Active'], ['Ethan Brown', 'Design Thinking', '92%', 'Active'], ['Amelia Jones', 'Data Storytelling', '44%', 'Needs attention'], ['Lucas Smith', 'AI & Machine Learning', '86%', 'Active']] : [['Sarah Chen', 'Completed quiz', 'Assessment', 'Just now'], ['Maya Chen', 'Published course', 'Content', '12 min ago'], ['Ethan Brown', 'Asked AI question', 'Assistant', '34 min ago'], ['Olivia Martin', 'Joined workspace', 'Users', '1 hour ago']]; return <div className="data-table-wrap"><table><thead><tr>{(teacher ? ['Student', 'Course', 'Progress', 'Status'] : ['User', 'Action', 'Module', 'When']).map(x => <th key={x}>{x}</th>)}<th /></tr></thead><tbody>{rows.map(row => <tr key={row.join('-')}>{row.map((cell, i) => <td key={cell}><span className={i === row.length - 1 && teacher ? `table-status ${cell === 'Active' ? 'success' : 'warning'}` : ''}>{cell}</span></td>)}<td><MoreHorizontal size={16}/></td></tr>)}</tbody></table></div>; }
+function Card({ children, className = '' }) { return <div className={`card ${className}`}>{children}</div>; }
 
-export { Button, ProgressBar, StatCard, PageHeader, CourseCard, PaperclipIcon, CalendarIcon, DataTable };
+export { Button, ProgressBar, StatCard, PageHeader, CourseCard, PaperclipIcon, CalendarIcon, DataTable, Card };

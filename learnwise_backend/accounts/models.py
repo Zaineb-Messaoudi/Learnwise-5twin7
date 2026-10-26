@@ -1,10 +1,29 @@
 import base64
 import hashlib
+import hmac
+import secrets
 import uuid
-from django.contrib.auth.models import AbstractUser
-from django.db import models
+from django.contrib.auth.models import AbstractUser, UserManager as DjangoUserManager
+from django.db import models, transaction
 from django.utils import timezone
 from django.conf import settings
+
+
+MAX_FAILED_LOGINS = 5
+LOCKOUT_MINUTES = 30
+MAX_FAILED_FACE_ATTEMPTS = 5
+FACE_LOCKOUT_MINUTES = 30
+
+
+class UserManager(DjangoUserManager):
+    """Superusers made with `createsuperuser` must be able to sign in to the Learnwise
+    API right away: mark their email as verified and give them the admin role
+    (otherwise the email-verification check would lock them out of everything)."""
+
+    def create_superuser(self, username=None, email=None, password=None, **extra_fields):
+        extra_fields.setdefault('email_verified', True)
+        extra_fields.setdefault('role', 'admin')
+        return super().create_superuser(username, email, password, **extra_fields)
 
 
 class User(AbstractUser):
@@ -15,7 +34,7 @@ class User(AbstractUser):
     ]
 
     email = models.EmailField(unique=True)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='etudiant')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     email_verified = models.BooleanField(default=False)
     avatar = models.ImageField(upload_to='avatars/', null=True, blank=True)
@@ -34,6 +53,11 @@ class User(AbstractUser):
     # Password history
     password_history = models.JSONField(default=list, blank=True)
 
+    # Face-login lockout (face auth is weaker than password + 2FA: no liveness,
+    # so brute-force / descriptor-reuse attempts must be rate-limited the same way)
+    failed_face_attempts = models.IntegerField(default=0)
+    face_locked_until = models.DateTimeField(null=True, blank=True)
+
     # Terms & consent
     terms_accepted_at = models.DateTimeField(null=True, blank=True)
     terms_version = models.CharField(max_length=20, blank=True)
@@ -48,6 +72,8 @@ class User(AbstractUser):
 
     # Last password change
     password_changed_at = models.DateTimeField(null=True, blank=True)
+
+    objects = UserManager()
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
@@ -69,21 +95,93 @@ class User(AbstractUser):
     def get_short_name(self):
         return self.first_name or self.username
 
+    # --- Onboarding state ---------------------------------------------------
+    # A single source of truth for whether a (typically social-signup) account
+    # still needs to go through the role-selection and face-capture steps.
+    # Used by UserSerializer so every endpoint that returns the user object
+    # (login, social auth, /me/) agrees on this, and the frontend can always
+    # redirect back into onboarding — on first login AND on any later login
+    # that happens before onboarding is finished.
+    @property
+    def is_admin_account(self):
+        return bool(self.is_superuser or self.role == 'admin')
+
+    def needs_role_selection(self):
+        return self.role is None and not self.is_superuser
+
+    def needs_face_profile(self):
+        # Administrators authenticate with password + 2FA, never with a face.
+        if self.is_admin_account:
+            return False
+        try:
+            return not self.face_profile.is_verified
+        except FaceProfile.DoesNotExist:
+            return True
+
+    def face_login_allowed(self):
+        """Face sign-in is a convenience for students/professors only. It is never
+        offered for admin/staff accounts (there is no liveness check)."""
+        allowed_roles = getattr(settings, 'FACE_LOGIN_ROLES', ('etudiant', 'professeur'))
+        return bool(
+            getattr(settings, 'FACE_LOGIN_ENABLED', True)
+            and not self.is_admin_account
+            and not self.is_staff
+            and self.role in allowed_roles
+        )
+
+    def needs_onboarding(self):
+        return self.needs_role_selection() or self.needs_face_profile()
+
     def is_locked(self):
         if self.locked_until and timezone.now() < self.locked_until:
             return True
         return False
 
     def record_failed_login(self):
+        now = timezone.now()
+        if self.locked_until:
+            if now < self.locked_until:
+                # Already locked: never extend the lock, otherwise anyone who knows
+                # an email address could keep that account locked forever.
+                return
+            # A previous lock has expired: start counting from zero again
+            self.failed_login_attempts = 0
+            self.locked_until = None
         self.failed_login_attempts += 1
-        if self.failed_login_attempts >= 5:
-            self.locked_until = timezone.now() + timezone.timedelta(minutes=30)
+        if self.failed_login_attempts >= MAX_FAILED_LOGINS:
+            self.locked_until = now + timezone.timedelta(minutes=LOCKOUT_MINUTES)
         self.save(update_fields=['failed_login_attempts', 'locked_until'])
 
     def record_successful_login(self):
         self.failed_login_attempts = 0
         self.locked_until = None
-        self.save(update_fields=['failed_login_attempts', 'locked_until'])
+        self.failed_face_attempts = 0
+        self.face_locked_until = None
+        self.last_login = timezone.now()
+        self.save(update_fields=['failed_login_attempts', 'locked_until', 'failed_face_attempts', 'face_locked_until', 'last_login'])
+
+    def is_face_locked(self):
+        if self.face_locked_until and timezone.now() < self.face_locked_until:
+            return True
+        return False
+
+    def record_failed_face_login(self):
+        now = timezone.now()
+        if self.face_locked_until:
+            if now < self.face_locked_until:
+                return
+            self.failed_face_attempts = 0
+            self.face_locked_until = None
+        self.failed_face_attempts += 1
+        if self.failed_face_attempts >= MAX_FAILED_FACE_ATTEMPTS:
+            self.face_locked_until = now + timezone.timedelta(minutes=FACE_LOCKOUT_MINUTES)
+        self.save(update_fields=['failed_face_attempts', 'face_locked_until'])
+
+    def record_successful_face_login(self):
+        self.failed_face_attempts = 0
+        self.face_locked_until = None
+        self.last_login = timezone.now()
+        self.save(update_fields=['failed_face_attempts', 'face_locked_until', 'last_login'])
 
     def add_password_to_history(self, password_hash):
         history = self.password_history or []
@@ -93,8 +191,12 @@ class User(AbstractUser):
         self.save(update_fields=['password_history', 'password_changed_at'])
 
     def check_password_history(self, password):
-        for old_hash in self.password_history:
-            if self.check_password(password):
+        from django.contrib.auth.hashers import check_password
+        # Also block re-using the current password
+        if self.has_usable_password() and self.check_password(password):
+            return True
+        for old_hash in (self.password_history or []):
+            if check_password(password, old_hash):
                 return True
         return False
 
@@ -114,23 +216,70 @@ class User(AbstractUser):
 
     def verify_totp(self, token):
         import pyotp
-        if not self.totp_secret:
+        from django.core.cache import cache
+        if not self.totp_secret or not token or not str(token).isdigit():
             return False
         totp = pyotp.TOTP(self.totp_secret)
-        return totp.verify(token, valid_window=1)
+        if not totp.verify(token, valid_window=1):
+            return False
+        # Replay protection: a TOTP code can only be used once
+        replay_key = f'totp_used:{self.pk}:{token}'
+        if cache.get(replay_key):
+            return False
+        cache.set(replay_key, True, 120)
+        return True
+
+    BACKUP_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'  # no 0/O/1/I look-alikes
+    BACKUP_CODE_LENGTH = 10
+
+    @staticmethod
+    def _normalize_backup_code(code):
+        return ''.join(str(code).split()).replace('-', '').upper()
+
+    @classmethod
+    def _hash_backup_code(cls, code):
+        """Keyed hash (HMAC with SECRET_KEY): a leaked database alone cannot be
+        brute-forced offline."""
+        digest = hmac.new(
+            settings.SECRET_KEY.encode(),
+            cls._normalize_backup_code(code).encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return f'v2${digest}'
+
+    @staticmethod
+    def _legacy_backup_hash(code):
+        # Hashes written by older versions (unsalted SHA-256 of the 8-hex-char code)
+        return hashlib.sha256(str(code).strip().upper().encode()).hexdigest()
 
     def generate_backup_codes(self, count=10):
-        import secrets
-        codes = [secrets.token_hex(4).upper() for _ in range(count)]
-        self.backup_codes = codes
+        """Generate new backup codes (50 bits each). Only keyed hashes are stored;
+        the plaintext codes are returned once so they can be shown to the user."""
+        raw = [
+            ''.join(secrets.choice(self.BACKUP_CODE_ALPHABET) for _ in range(self.BACKUP_CODE_LENGTH))
+            for _ in range(count)
+        ]
+        self.backup_codes = [self._hash_backup_code(c) for c in raw]
         self.save(update_fields=['backup_codes'])
-        return codes
+        half = self.BACKUP_CODE_LENGTH // 2
+        return [f'{c[:half]}-{c[half:]}' for c in raw]
 
     def use_backup_code(self, code):
-        if code in self.backup_codes:
-            self.backup_codes.remove(code)
-            self.save(update_fields=['backup_codes'])
-            return True
+        """Consume a backup code. The row is locked so one code cannot be used by
+        two concurrent requests."""
+        if not code or not self._normalize_backup_code(code):
+            return False
+        candidates = {self._hash_backup_code(code), self._legacy_backup_hash(code)}
+        with transaction.atomic():
+            fresh = type(self).objects.select_for_update().get(pk=self.pk)
+            remaining = list(fresh.backup_codes or [])
+            for stored in remaining:
+                if any(hmac.compare_digest(str(stored), candidate) for candidate in candidates):
+                    remaining.remove(stored)
+                    fresh.backup_codes = remaining
+                    fresh.save(update_fields=['backup_codes'])
+                    self.backup_codes = remaining
+                    return True
         return False
 
     def request_email_change(self, new_email):
@@ -145,13 +294,17 @@ class User(AbstractUser):
                 expiry = self.email_change_requested_at + timezone.timedelta(hours=24)
                 if timezone.now() > expiry:
                     return False
+            # Make sure nobody took the address in the meantime
+            if type(self).objects.filter(email__iexact=self.pending_email).exclude(pk=self.pk).exists():
+                return False
             self.email = self.pending_email
-            self.username = self.pending_email.split('@')[0]
             self.pending_email = None
             self.email_change_token = None
             self.email_change_requested_at = None
-            self.email_verified = False
-            self.save(update_fields=['email', 'username', 'pending_email', 'email_change_token', 'email_change_requested_at', 'email_verified'])
+            # The new address was just proven by clicking the emailed link. Resetting
+            # this to False used to lock the user out (login needs a verified email).
+            self.email_verified = True
+            self.save(update_fields=['email', 'pending_email', 'email_change_token', 'email_change_requested_at', 'email_verified'])
             return True
         return False
 
@@ -173,14 +326,24 @@ class User(AbstractUser):
 class EmailVerification(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='email_verification')
     token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    code = models.CharField(max_length=6, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     verified_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'accounts_email_verification'
+        indexes = [
+            models.Index(fields=['user'], name='email_verification_user_idx'),
+            models.Index(fields=['created_at'], name='email_verification_created_idx'),
+        ]
 
     def __str__(self):
         return f"Email verification for {self.user.email}"
+
+    def generate_code(self):
+        self.code = f"{secrets.randbelow(1000000):06d}"
+        self.save(update_fields=['code'])
+        return self.code
 
     def is_valid(self):
         if self.verified_at:
@@ -203,6 +366,11 @@ class PasswordResetToken(models.Model):
 
     class Meta:
         db_table = 'accounts_password_reset_token'
+        indexes = [
+            models.Index(fields=['user'], name='password_reset_user_idx'),
+            models.Index(fields=['created_at'], name='password_reset_created_idx'),
+            models.Index(fields=['used_at'], name='password_reset_used_idx'),
+        ]
 
     def __str__(self):
         return f"Password reset for {self.user.email}"
@@ -236,14 +404,25 @@ class SocialAccount(models.Model):
     class Meta:
         db_table = 'accounts_social_account'
         unique_together = ['provider', 'provider_user_id']
+        indexes = [
+            models.Index(fields=['user'], name='social_account_user_idx'),
+            models.Index(fields=['provider'], name='social_account_provider_idx'),
+        ]
 
     def __str__(self):
         return f"{self.user.email} - {self.provider}"
 
 
 class UserSession(models.Model):
+    AUTH_METHOD_CHOICES = [
+        ('password', 'Password'),
+        ('face', 'Face recognition'),
+        ('social', 'Social OAuth'),
+    ]
+
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sessions')
     session_key = models.CharField(max_length=40, unique=True)
+    auth_method = models.CharField(max_length=20, choices=AUTH_METHOD_CHOICES, default='password')
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.TextField(blank=True)
     device_info = models.JSONField(default=dict, blank=True)
@@ -256,6 +435,12 @@ class UserSession(models.Model):
     class Meta:
         db_table = 'accounts_user_session'
         ordering = ['-last_activity']
+        indexes = [
+            models.Index(fields=['user', 'revoked_at', 'is_current'], name='sess_user_rev_cur_idx'),
+            models.Index(fields=['user', 'last_activity'], name='sess_user_activity_idx'),
+            models.Index(fields=['revoked_at'], name='sess_revoked_idx'),
+            models.Index(fields=['is_current'], name='sess_current_idx'),
+        ]
 
     def __str__(self):
         return f"{self.user.email} - {self.device_info.get('browser', 'Unknown')} - {self.created_at}"
@@ -288,6 +473,15 @@ class SecurityEvent(models.Model):
         ('data_export_requested', 'Data Export Requested'),
         ('account_deletion_requested', 'Account Deletion Requested'),
         ('account_deleted', 'Account Deleted'),
+        ('face_registered', 'Face Registered'),
+        ('face_login_failed', 'Face Login Failed'),
+        ('admin_activate', 'Admin Activated Account'),
+        ('admin_deactivate', 'Admin Deactivated Account'),
+        ('admin_promote', 'Admin Promoted User'),
+        ('admin_demote', 'Admin Demoted User'),
+        ('admin_lock', 'Admin Locked Account'),
+        ('admin_unlock', 'Admin Unlocked Account'),
+        ('admin_delete', 'Admin Deleted Account'),
     ]
 
     SEVERITY_CHOICES = [
@@ -311,6 +505,7 @@ class SecurityEvent(models.Model):
         indexes = [
             models.Index(fields=['user', 'event_type']),
             models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['event_type', 'created_at'], name='sec_evt_type_created_idx'),
         ]
 
     def __str__(self):
@@ -358,6 +553,7 @@ class ActivityLog(models.Model):
             models.Index(fields=['user', 'action']),
             models.Index(fields=['user', 'resource_type']),
             models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['resource_type', 'resource_id'], name='activity_resource_idx'),
         ]
 
     def __str__(self):
@@ -385,6 +581,11 @@ class DataExportRequest(models.Model):
     class Meta:
         db_table = 'accounts_data_export_request'
         ordering = ['-requested_at']
+        indexes = [
+            models.Index(fields=['user'], name='data_export_user_idx'),
+            models.Index(fields=['status'], name='data_export_status_idx'),
+            models.Index(fields=['requested_at'], name='data_export_requested_idx'),
+        ]
 
     def __str__(self):
         return f"Data export for {self.user.email} - {self.status}"
@@ -413,6 +614,11 @@ class AccountDeletionRequest(models.Model):
     class Meta:
         db_table = 'accounts_account_deletion_request'
         ordering = ['-requested_at']
+        indexes = [
+            models.Index(fields=['user'], name='account_deletion_user_idx'),
+            models.Index(fields=['status'], name='account_deletion_status_idx'),
+            models.Index(fields=['scheduled_deletion_at'], name='account_deletion_scheduled_idx'),
+        ]
 
     def __str__(self):
         return f"Account deletion for {self.user.email} - {self.status}"
@@ -429,6 +635,46 @@ class TermsVersion(models.Model):
     class Meta:
         db_table = 'accounts_terms_version'
         ordering = ['-effective_date']
+        indexes = [
+            models.Index(fields=['is_active'], name='terms_active_idx'),
+            models.Index(fields=['effective_date'], name='terms_effective_idx'),
+        ]
+        ordering = ['-effective_date']
 
     def __str__(self):
         return f"Terms v{self.version}"
+
+
+class FaceProfile(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='face_profile')
+    descriptor = models.JSONField()
+    quality_score = models.FloatField(default=0.0)
+    enrollment_image = models.ImageField(upload_to='face_enrollment/', null=True, blank=True)
+    is_verified = models.BooleanField(default=False, db_index=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'accounts_face_profile'
+        indexes = [
+            models.Index(fields=['is_verified'], name='face_verified_idx'),
+            models.Index(fields=['user', 'is_verified'], name='face_user_verified_idx'),
+        ]
+
+    def __str__(self):
+        return f"Face profile for {self.user.email}"
+
+    def verify_face(self, live_descriptor, threshold=None):
+        import numpy as np
+        if threshold is None:
+            threshold = getattr(settings, 'FACE_MATCH_THRESHOLD', 0.5)
+        try:
+            stored = np.array(self.descriptor, dtype=float)
+            live = np.array(live_descriptor, dtype=float)
+        except (TypeError, ValueError):
+            return False, float('inf')
+        if stored.shape != live.shape or not np.all(np.isfinite(live)):
+            return False, float('inf')
+        distance = float(np.linalg.norm(stored - live))
+        return distance < threshold, distance

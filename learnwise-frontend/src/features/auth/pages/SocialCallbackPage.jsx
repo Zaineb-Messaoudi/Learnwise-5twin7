@@ -1,17 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../../contexts/AuthContext';
 import './SocialCallbackPage.css';
 
 export function SocialCallbackPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { socialLogin } = useAuth();
-  const [status, setStatus] = useState('loading');
-  const [error, setError] = useState('');
+  const hasRunRef = useRef(false);
 
   useEffect(() => {
+    if (hasRunRef.current) return;
+    hasRunRef.current = true;
+
     const handleCallback = async () => {
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code');
@@ -19,14 +21,12 @@ export function SocialCallbackPage() {
       const oauthError = params.get('error');
 
       if (oauthError) {
-        setStatus('error');
-        setError(`Social login failed: ${params.get('error_description') || oauthError}`);
+        navigate(`/auth/login?error=${encodeURIComponent(params.get('error_description') || oauthError)}`, { replace: true });
         return;
       }
 
       if (!code || !stateStr) {
-        setStatus('error');
-        setError('Invalid callback. Missing authorization code or state.');
+        navigate('/auth/login?error=invalid_callback', { replace: true });
         return;
       }
 
@@ -34,69 +34,51 @@ export function SocialCallbackPage() {
       try {
         state = JSON.parse(stateStr);
       } catch {
-        setStatus('error');
-        setError('Invalid state parameter.');
+        navigate('/auth/login?error=invalid_state', { replace: true });
         return;
       }
 
       const { provider, role, next } = state;
 
+      // For OAuth, send null role so user must choose in complete profile
+      // (role selection is handled in CompleteProfilePage before face capture)
       try {
-        const result = await socialLogin(provider, null, role, code);
+        const result = await socialLogin(provider, null, null, code);
         if (result.success) {
-          setStatus('success');
-          setTimeout(() => navigate(next || '/student/dashboard', { replace: true }), 1500);
+          if (result.isNewUser || result.needsProfileCompletion) {
+            // New OAuth user or needs profile completion - redirect to complete profile page.
+            // socialLogin() already logged the user in (tokens are stored), so only the
+            // user object needs to travel onward, and it goes via navigation state — never
+            // the URL, where it (and especially the tokens) would end up in browser
+            // history and server/proxy logs.
+            navigate('/auth/complete-profile', { replace: true, state: { user: result.user } });
+          } else {
+            // Existing user - login directly
+            const routeRole = result.user?.role ? (result.user.role === 'etudiant' ? 'student' : result.user.role === 'professeur' ? 'teacher' : 'admin') : 'student';
+            navigate(next || `/${routeRole}/dashboard`, { replace: true });
+          }
         } else {
-          setStatus('error');
-          setError(result.error);
+          navigate(`/auth/login?error=${encodeURIComponent(result.error)}`, { replace: true });
         }
       } catch (err) {
-        setStatus('error');
-        setError('Social login failed. Please try again.');
+        navigate('/auth/login?error=social_login_failed', { replace: true });
       }
     };
 
     handleCallback();
   }, [searchParams, socialLogin, navigate]);
 
-  if (status === 'loading') {
-    return (
-      <div className="callback-page">
-        <div className="callback-card">
-          <div className="callback-icon loading">
-            <Loader2 className="spin" size={32} />
-          </div>
-          <h1>Completing sign in...</h1>
-          <p>Please wait while we connect your account.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === 'success') {
-    return (
-      <div className="callback-page">
-        <div className="callback-card">
-          <div className="callback-icon success">
-            <CheckCircle size={48} />
-          </div>
-          <h1>Welcome back!</h1>
-          <p>You've been signed in successfully. Redirecting...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="callback-page">
       <div className="callback-card">
-        <div className="callback-icon error">
-          <AlertCircle size={48} />
+        <div className="callback-icon loading">
+          <Loader2 className="spin" size={32} />
         </div>
-        <h1>Sign in failed</h1>
-        <p>{error || 'An error occurred during social sign in.'}</p>
-        <a href="/auth/login" className="button primary">Try again</a>
+        <h1>Completing sign in…</h1>
+        <p>Please wait while we connect your account.</p>
       </div>
     </div>
   );
 }
+
+export default SocialCallbackPage;
