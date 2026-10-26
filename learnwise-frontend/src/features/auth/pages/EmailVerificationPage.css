@@ -1,92 +1,220 @@
+/* Learnwise - Email verification page (matches platform auth design system) */
 .verification-page {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-6);
+  padding: var(--space-6, 40px) 20px;
+  position: relative;
+  overflow: hidden;
+  background: #fbfcff;
 }
 
+/* Subtle platform-style depth blob */
+.verification-page::before {
+  content: '';
+  position: absolute;
+  width: 520px;
+  height: 520px;
+  border: 1px solid rgba(117, 106, 232, 0.14);
+  border-radius: 50%;
+  right: -220px;
+  bottom: -180px;
+  box-shadow: 0 0 0 45px rgba(117, 106, 232, 0.06), 0 0 0 90px rgba(117, 106, 232, 0.03);
+  z-index: 0;
+}
+
+/* Card matches auth panel styling */
 .verification-card {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  max-width: 420px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: var(--space-8);
+  max-width: 430px;
+  background: #fff;
+  border: 1px solid #dfe3ec;
+  border-radius: 9px;
+  padding: 40px 32px 36px;
   text-align: center;
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 24px 60px -16px rgba(29, 37, 53, 0.12);
 }
 
-.verification-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
+.verification-logo {
+  width: 150px;
+  height: auto;
+  display: block;
+  margin: 0 auto 28px;
+}
+
+.verification-logo img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.verification-heading {
+  margin-bottom: 30px;
+}
+
+.verification-kicker {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: #8f95ec;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.verification-kicker-success {
+  color: #baf35e;
+}
+
+.verification-kicker-error {
+  color: #ff6b86;
+}
+
+.verification-heading h1 {
+  font-family: Manrope, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-size: 32px;
+  letter-spacing: -1.2px;
+  margin: 14px 0 7px;
+  color: #1d2535;
+}
+
+.verification-heading p {
+  font-size: 13px;
+  color: #8993a3;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.verification-heading p strong {
+  color: #1d2535;
   font-weight: 700;
-  font-size: var(--text-xl);
-  color: var(--brand);
-  margin-bottom: var(--space-6);
 }
 
-.verification-state h1 {
-  font-size: var(--text-2xl);
+.form-error {
+  font-size: 10px;
+  color: #e45757;
+  margin: 0 0 20px;
+  text-align: center;
+}
+
+/* OTP digit inputs - each digit in its own box, matching platform input style */
+.otp-group {
+  margin: 0 0 24px;
+}
+
+.otp-label {
+  font-size: 11px;
   font-weight: 700;
-  margin-bottom: var(--space-2);
-  color: var(--fg);
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: #5e6978;
+  display: block;
+  text-align: center;
+  margin-bottom: 12px;
 }
 
-.verification-state p {
-  color: var(--muted);
-  margin-bottom: var(--space-6);
-  line-height: 1.6;
+.otp-inputs {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
 }
 
-.verification-icon {
-  display: inline-flex;
-  margin-bottom: var(--space-4);
+.otp-box {
+  width: 46px;
+  height: 44px;
+  border-radius: 8px;
+  border: 1px solid #dfe3ec;
+  background: #fff;
+  color: #273246;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  outline: 0;
+  transition: 0.2s;
 }
 
-.verification-icon svg {
-  color: var(--brand);
+.otp-box::-webkit-outer-spin-button,
+.otp-box::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.otp-box[type=number] {
+  -moz-appearance: textfield;
 }
 
-.verification-state.verifying .verification-icon svg {
-  color: var(--brand);
-  animation: spin 1s linear infinite;
+.otp-box:focus {
+  border-color: #7775e9;
+  box-shadow: 0 0 0 3px #7775e91c;
 }
 
-.verification-state.success .verification-icon svg {
-  color: var(--success);
+.otp-box.filled {
+  border-color: #7775e9;
+  background: #f3f4ff;
+  color: #1d2535;
 }
 
-.verification-state.error .verification-icon svg {
-  color: var(--danger);
+.otp-box.error {
+  border-color: #e45757;
+  animation: shake 0.45s ease-in-out;
 }
 
-.verification-state.resent .verification-icon svg {
-  color: var(--brand);
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.otp-hint {
+  font-size: 10px;
+  color: #8993a3;
+  text-align: center;
+  margin-top: 14px;
 }
 
+.otp-hint a {
+  color: #6663dc;
+  font-weight: 700;
+  text-decoration: none;
+}
+.otp-hint a:hover {
+  text-decoration: underline;
+}
+
+/* Actions */
 .verification-actions {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: 10px;
+  margin-top: 8px;
 }
 
-.verification-actions .button {
-  width: 100%;
+.verification-actions.center {
+  justify-content: center;
 }
 
 @media (min-width: 480px) {
   .verification-actions {
     flex-direction: row;
+    gap: 10px;
   }
   .verification-actions .button {
     width: auto;
     flex: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .verification-card {
+    padding: 32px 20px 30px;
+  }
+  .otp-box {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
   }
 }

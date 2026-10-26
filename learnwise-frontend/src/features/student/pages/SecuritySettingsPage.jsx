@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Key, Smartphone, Clock, Activity, History, AlertTriangle, LogOut, CheckCircle, Copy, QrCode as QrCodeIcon, Trash2 } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../../contexts/AuthContext';
+import { authApi } from '../../../api/auth.api';
 import './SecuritySettingsPage.css';
 
 export function SecuritySettingsPage() {
@@ -26,6 +27,10 @@ export function SecuritySettingsPage() {
     loading,
     error,
     clearError,
+    stepUpRequired,
+    stepUpError,
+    stepUpWithPassword,
+    clearStepUp,
   } = useAuth();
 
   const [activeTab, setActiveTab] = useState('password');
@@ -41,6 +46,27 @@ export function SecuritySettingsPage() {
   const [deletionForm, setDeletionForm] = useState({ reason: '', feedback: '', password: '', token: '' });
   const [localError, setLocalError] = useState('');
   const [localSuccess, setLocalSuccess] = useState('');
+  // Step-up re-authentication: a face-authenticated session cannot perform sensitive
+  // operations until the user re-authenticates with a password.
+  const [stepUpPassword, setStepUpPassword] = useState('');
+  const [stepUpAction, setStepUpAction] = useState(null); // 'changePassword' | 'disable2FA' | 'requestDeletion' | 'confirmDeletion'
+
+  const handleDownloadExport = async (exportId) => {
+    setLocalError('');
+    try {
+      const blob = await authApi.downloadDataExport(exportId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `learnwise-export-${exportId}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      setLocalError(cause?.response?.data?.detail || 'Failed to download export.');
+    }
+  };
 
   useEffect(() => {
     loadSecurityData();
@@ -68,6 +94,9 @@ export function SecuritySettingsPage() {
     if (result.success) {
       setLocalSuccess('Password changed successfully.');
       setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+    } else if (result.requiresStepUp) {
+      setStepUpAction('changePassword');
+      setLocalError(result.error || stepUpError || 'Please re-authenticate with your password.');
     } else {
       setLocalError(result.error);
     }
@@ -107,6 +136,9 @@ export function SecuritySettingsPage() {
       setTwofaStep('status');
       setTotpToken('');
       setBackupCode('');
+    } else if (result.requiresStepUp) {
+      setStepUpAction('disable2FA');
+      setLocalError(result.error || stepUpError || 'Please re-authenticate with your password.');
     } else {
       setLocalError(result.error);
     }
@@ -142,6 +174,9 @@ export function SecuritySettingsPage() {
     if (result.success) {
       setLocalSuccess(result.message);
       loadSecurityData();
+    } else if (result.requiresStepUp) {
+      setStepUpAction('requestDeletion');
+      setLocalError(result.error || stepUpError || 'Please re-authenticate with your password.');
     } else {
       setLocalError(result.error);
     }
@@ -167,8 +202,25 @@ export function SecuritySettingsPage() {
     if (result.success) {
       setLocalSuccess('Account will be permanently deleted on the scheduled date.');
       loadSecurityData();
+    } else if (result.requiresStepUp) {
+      setStepUpAction('confirmDeletion');
+      setLocalError(result.error || stepUpError || 'Please re-authenticate with your password.');
     } else {
       setLocalError(result.error);
+    }
+  };
+
+  const handleStepUpSubmit = async (e) => {
+    e.preventDefault();
+    setLocalError('');
+    const result = await stepUpWithPassword(stepUpPassword);
+    if (result.success) {
+      setStepUpAction(null);
+      setStepUpPassword('');
+      setLocalSuccess('Re-authenticated with your password. Please try your action again.');
+      clearStepUp();
+    } else {
+      setLocalError(result.error || 'Step-up authentication failed.');
     }
   };
 
@@ -213,6 +265,47 @@ export function SecuritySettingsPage() {
 
       {localError && <div className="security-error">{localError}</div>}
       {localSuccess && <div className="security-success">{localSuccess}</div>}
+
+      {/* Step-up re-authentication prompt (shown when a face-authenticated session
+          attempts a sensitive operation that requires a password step-up). */}
+      {stepUpAction && (
+        <div className="security-section step-up-card">
+          <h2>Re-authenticate</h2>
+          <p>
+            {stepUpError ||
+              'This action requires your password. Please re-authenticate to continue.'}
+          </p>
+          <form onSubmit={handleStepUpSubmit} className="security-form">
+            <div className="form-group">
+              <label>Password</label>
+              <input
+                type="password"
+                value={stepUpPassword}
+                onChange={(e) => setStepUpPassword(e.target.value)}
+                placeholder="Enter your password"
+                required
+                autoComplete="current-password"
+              />
+            </div>
+            <div className="form-actions">
+              <button type="submit" className="btn-primary" disabled={loading || !stepUpPassword}>
+                Re-authenticate
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setStepUpAction(null);
+                  setStepUpPassword('');
+                  clearStepUp();
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Password Tab */}
       {activeTab === 'password' && (
@@ -310,7 +403,7 @@ export function SecuritySettingsPage() {
                     value={backupCode}
                     onChange={e => setBackupCode(e.target.value)}
                     placeholder="Use a backup code instead"
-                    maxLength={8}
+                    maxLength={32}
                   />
                 </div>
                 <button type="submit" className="btn-primary" disabled={loading}>
@@ -368,7 +461,7 @@ export function SecuritySettingsPage() {
                     value={backupCode}
                     onChange={e => setBackupCode(e.target.value)}
                     placeholder="Use a backup code instead"
-                    maxLength={8}
+                    maxLength={32}
                   />
                 </div>
                 <button type="submit" className="btn-primary" disabled={loading}>
@@ -460,11 +553,12 @@ export function SecuritySettingsPage() {
                   <div key={exp.id} className="export-item">
                     <span>Status: {exp.status}</span>
                     <span>Requested: {new Date(exp.requested_at).toLocaleString()}</span>
-                    {exp.file_path && (
-                      <a href={exp.file_path} className="text-link" download>
-                        Download
-                      </a>
-                    )}
+                    <button
+                      onClick={() => handleDownloadExport(exp.id)}
+                      className="text-link"
+                    >
+                      Download
+                    </button>
                   </div>
                 ))}
               </div>

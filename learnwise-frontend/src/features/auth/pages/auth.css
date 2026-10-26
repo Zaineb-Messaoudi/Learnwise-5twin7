@@ -195,6 +195,8 @@ color:#273246;
 font-size:12px}
 .auth-form-modern input:focus,.auth-form-modern select:focus{border-color:#7775e9;
 box-shadow:0 0 0 3px #7775e91c}
+.auth-form-modern input.error,.auth-form-modern select.error{border-color:#e45757;}
+.field-error{font-size:9px;color:#e45757;margin-top:5px;display:block;}
 .password-field{position:relative}
 .password-field input{padding-right:38px}
 .password-field svg{position:absolute;
@@ -277,3 +279,95 @@ margin-bottom:35px}
 .auth-field-row{grid-template-columns:1fr}
 .auth-heading h2{font-size:27px}
 }
+
+/* Face Capture Modal */
+.face-capture-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.face-capture-modal-content {
+  width: 100%;
+  max-width: 480px;
+  background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 25px 50px rgba(15, 23, 42, 0.25);
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.face-capture-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e9ecf2;
+}
+
+.face-capture-modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1d2535;
+}
+
+.face-capture-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: #f3f4f6;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.face-capture-close:hover {
+  background: #e5e7eb;
+  color: #1d2535;
+}
+
+@media (max-width: 480px) {
+  .face-capture-modal {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .face-capture-modal-content {
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+}
+
+.auth-2fa-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f3f4ff;
+  border: 1px solid #e1e3fb;
+}
+

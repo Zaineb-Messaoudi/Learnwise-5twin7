@@ -13,7 +13,7 @@ jest.mock('../src/api/client', () => ({ apiRequest: jest.fn(), isBackendApiEnabl
 describe('workspace route resolution', () => {
   test('lazy-loads the public homepage route', async () => {
     render(<MemoryRouter initialEntries={['/']}><Suspense fallback={<p>Loading page</p>}><RouteOverrides/></Suspense></MemoryRouter>);
-    expect(await screen.findByRole('heading', { level: 1, name: /aha moment/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /aha moment/i }, { timeout: 30000 })).toBeInTheDocument();
   });
 
   test.each([

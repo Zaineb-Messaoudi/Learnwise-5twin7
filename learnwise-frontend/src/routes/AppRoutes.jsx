@@ -1,5 +1,5 @@
-import React, { lazy } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import React, { lazy, useEffect } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 const NotFound = lazy(() => import('../features/auth/pages/NotFoundPage').then(module => ({ default: module.NotFound })));
 const SignatureLanding = lazy(() => import('../features/public/pages/SignatureLandingPage').then(module => ({ default: module.SignatureLanding })));
@@ -8,6 +8,9 @@ const LearningPathPage = lazy(() => import('../features/student/pages/LearningPa
 const Landing = lazy(() => import('../pages/PublicPages').then(module => ({ default: module.Landing })));
 const PublicSectionPage = lazy(() => import('../pages/PublicPages').then(module => ({ default: module.PublicSectionPage })));
 const AuthPage = lazy(() => import('../features/auth/pages/AuthPage').then(module => ({ default: module.AuthPage })));
+const FaceCapturePage = lazy(() => import('../features/auth/pages/FaceCapturePage').then(module => ({ default: module.FaceCapturePage })));
+const CompleteProfilePage = lazy(() => import('../features/auth/pages/CompleteProfilePage').then(module => ({ default: module.CompleteProfilePage })));
+const SocialCallbackPage = lazy(() => import('../features/auth/pages/SocialCallbackPage').then(module => ({ default: module.SocialCallbackPage })));
 const LegalPage = lazy(() => import('../features/public/pages/LegalPage').then(module => ({ default: module.LegalPage })));
 const EducatorLandingPage = lazy(() => import('../features/public/pages/EducatorLandingPage').then(module => ({ default: module.EducatorLandingPage })));
 const StudentDashboard = lazy(() => import('../features/student/pages/StudentDashboard').then(module => ({ default: module.StudentDashboard })));
@@ -29,7 +32,7 @@ const ContentManagementPage = lazy(() => import('../features/staff/pages/Content
 const TeacherStudentsPage = lazy(() => import('../features/staff/pages/ResourcePages').then(module => ({ default: module.TeacherStudentsPage })));
 const TeacherAnalyticsPage = lazy(() => import('../features/staff/pages/StaffDashboard').then(module => ({ default: module.TeacherAnalyticsPage })));
 const AssessmentStudioPage = lazy(() => import('../features/staff/pages/AssessmentStudioPage').then(module => ({ default: module.AssessmentStudioPage })));
-const AdminUsersPage = lazy(() => import('../features/staff/pages/ResourcePages').then(module => ({ default: module.AdminUsersPage })));
+const AdminUserManagement = lazy(() => import('../features/admin/pages/AdminUserManagement').then(module => ({ default: module.AdminUserManagement })));
 const AdminAnalyticsPage = lazy(() => import('../features/staff/pages/StaffDashboard').then(module => ({ default: module.AdminAnalyticsPage })));
 const AdminActivityPage = lazy(() => import('../features/staff/pages/ResourcePages').then(module => ({ default: module.AdminActivityPage })));
 const AdminNotificationsPage = lazy(() => import('../features/staff/pages/ResourcePages').then(module => ({ default: module.AdminNotificationsPage })));
@@ -42,12 +45,18 @@ const QuizResultPage = lazy(() => import('../features/student/pages/QuizResultPa
 const QuizOverviewPage = lazy(() => import('../features/student/pages/QuizOverviewPage').then(module => ({ default: module.QuizOverviewPage })));
 const QuizLibraryPage = lazy(() => import('../features/student/pages/QuizLibraryPage').then(module => ({ default: module.QuizLibraryPage })));
 const ExerciseLibraryPage = lazy(() => import('../features/student/pages/ExerciseLibraryPage').then(module => ({ default: module.ExerciseLibraryPage })));
-
 const ContactPage = lazy(() => import('../features/public/pages/ContactPage').then(module => ({ default: module.ContactPage })));
 const FaceAuthPage = lazy(() => import('../features/public/pages/FaceAuthPage').then(module => ({ default: module.FaceAuthPage })));
 const FaqPage = lazy(() => import('../features/public/pages/FaqPage').then(module => ({ default: module.FaqPage })));
 const ForgotPasswordPage = lazy(() => import('../features/public/pages/ForgotPasswordPage').then(module => ({ default: module.ForgotPasswordPage })));
 const UploadMaterialsPage = lazy(() => import('../features/public/pages/UploadMaterialsPage').then(module => ({ default: module.UploadMaterialsPage })));
+const ProfilePage = lazy(() => import('../features/student/pages/ProfilePage').then(module => ({ default: module.ProfilePage })));
+const SecuritySettingsPage = lazy(() => import('../features/student/pages/SecuritySettingsPage').then(module => ({ default: module.SecuritySettingsPage })));
+
+function getRouteRole(backendRole) {
+  const map = { etudiant: 'student', professeur: 'teacher', admin: 'admin' };
+  return map[backendRole] || 'student';
+}
 
 export function RouteBoundary({ children }) {
   const location = useLocation();
@@ -55,7 +64,7 @@ export function RouteBoundary({ children }) {
   const routeRole = location.pathname.split('/')[1];
   if (['student', 'teacher', 'admin'].includes(routeRole)) {
     if (!user) return <Navigate to={`/auth/login?next=${encodeURIComponent(location.pathname)}`} replace />;
-    if (user.role !== routeRole) return <Navigate to={`/${user.role}/dashboard`} replace />;
+    if (getRouteRole(user.role) !== routeRole) return <Navigate to={`/${getRouteRole(user.role)}/dashboard`} replace />;
   }
   return <>{children}</>;
 }
@@ -67,6 +76,12 @@ export function RouteOverrides() {
   if (path === '/student/learning-path') return <LearningPathPage />;
   if (path === '/educators') return <EducatorLandingPage />;
   if (path === '/auth/face-login') return <FaceAuthPage />;
+  if (path === '/auth/face-capture') return <FaceCapturePage />;
+  if (path === '/auth/complete-profile') return <CompleteProfilePage />;
+  if (path === '/auth/social-callback') return <SocialCallbackPage />;
+  // The email verification link sent by the backend points here (?token=...), and
+  // AuthPage.jsx's register flow also sends new users here (no token: "check your inbox").
+  if (path === '/auth/verify' || path === '/auth/verify-email') return <EmailVerificationPage />;
   if (path === '/auth/forgot-password' || path === '/auth/reset-password') return <ForgotPasswordPage />;
   if (path === '/contact') return <ContactPage />;
   if (path === '/faq') return <FaqPage />;
@@ -94,6 +109,8 @@ function WorkspaceRouter({ role }) {
     if (/^\/student\/quizzes\/[^/]+$/.test(pathname)) return <QuizOverviewPage />;
     if (/^\/student\/exercises\/[^/]+$/.test(pathname)) return <ExerciseDetailPage />;
     if (pathname === '/student/exercises') return <ExerciseLibraryPage />;
+    if (pathname === '/student/profile') return <ProfilePage />;
+    if (pathname === '/student/security') return <SecuritySettingsPage />;
     if (!isKnownWorkspacePath(pathname, role)) return <NotFound />;
     return <DetailPage role={role} title={titleFromPath(pathname)} description="Continue building confidence in this learning area." variant={variantFromPath(pathname)} />;
   }
@@ -109,7 +126,7 @@ function WorkspaceRouter({ role }) {
   if (pathname === '/teacher/ai-generation') return <TeacherAiGenerationPage />;
   if (pathname === '/teacher/settings' || pathname === '/teacher/profile') return <SettingsPage role="teacher" />;
   if (pathname === '/admin/dashboard') return <AdminDashboard />;
-  if (pathname === '/admin/users' || pathname === '/admin/students' || pathname === '/admin/teachers') return <AdminUsersPage />;
+  if (pathname === '/admin/users' || pathname === '/admin/students' || pathname === '/admin/teachers') return <AdminUserManagement />;
   if (pathname === '/admin/courses' || pathname === '/admin/quizzes' || pathname === '/admin/exercises') return <AdminContentPage />;
   if (pathname === '/admin/analytics' || pathname === '/admin/ai-usage') return <AdminAnalyticsPage />;
   if (pathname === '/admin/settings' || pathname === '/admin/profile') return <SettingsPage role="admin" />;
@@ -175,6 +192,20 @@ function variantFromPath(pathname) {
 }
 
 export function CompleteApp() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleOnboardingRequired = () => {
+      navigate('/auth/complete-profile', { replace: true });
+    };
+
+    window.addEventListener('learnwise:onboarding-required', handleOnboardingRequired);
+
+    return () => {
+      window.removeEventListener('learnwise:onboarding-required', handleOnboardingRequired);
+    };
+  }, [navigate]);
+
   return <Routes>
     <Route path="/" element={<Landing />} />
     <Route path="/about" element={<PublicSectionPage kind="about" title="Learning should feel more human." description="Learnwise combines thoughtful design, multimodal AI, and practical learning science to help more people make progress." />} />
@@ -185,7 +216,6 @@ export function CompleteApp() {
     <Route path="/privacy" element={<LegalPage type="privacy" />} />
     <Route path="/auth/login" element={<AuthPage />} />
     <Route path="/auth/register" element={<AuthPage register />} />
-    <Route path="/auth/verify" element={<AuthPage />} />
     <Route path="/student/*" element={<WorkspaceRouter role="student" />} />
     <Route path="/teacher/*" element={<WorkspaceRouter role="teacher" />} />
     <Route path="/admin/*" element={<WorkspaceRouter role="admin" />} />

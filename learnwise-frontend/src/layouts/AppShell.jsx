@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Activity, ArrowRight, BarChart3, Bell, BookOpen, ChevronDown, FolderOpen, Grid2X2, ListChecks, LogOut, Menu, MoreHorizontal, Search, Settings, Sparkles, Sun, Moon, Target, Users, X, Zap } from 'lucide-react';
+import { Activity, ArrowRight, BarChart3, Bell, BookOpen, ChevronDown, FolderOpen, Grid2X2, ListChecks, LogOut, Menu, MoreHorizontal, Search, Settings, Sparkles, Sun, Moon, Target, Users, X, Zap, User, Lock } from 'lucide-react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { navAdmin, navStudent, navTeacher } from '../data/mockData';
 import { useTheme } from '../contexts/ThemeContext';
@@ -7,7 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { authApi } from '../api/auth.api';
 import { isBackendApiEnabled } from '../api/client';
 
-const icons = { grid: Grid2X2, book: BookOpen, spark: Sparkles, quiz: ListChecks, target: Target, chart: BarChart3, folder: FolderOpen, users: Users, activity: Activity };
+const icons = { grid: Grid2X2, book: BookOpen, spark: Sparkles, quiz: ListChecks, target: Target, chart: BarChart3, folder: FolderOpen, users: Users, activity: Activity, user: User, lock: Lock };
 
 function Logo({ dark = false }) {
   return <Link to="/" className={`logo ${dark ? 'logo-dark' : ''}`} aria-label="Learnwise home"><img className="brand-logo-image" src="/assets/learnwise-wordmark.webp" width="329" height="74" alt="Learnwise" /><img className="brand-symbol-image" src="/assets/learnwise-symbol.png" width="96" height="82" alt="" aria-hidden="true" /></Link>;

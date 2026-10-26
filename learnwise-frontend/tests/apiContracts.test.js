@@ -53,7 +53,7 @@ describe('frontend API module ownership and contracts', () => {
     authApi.requestPasswordReset('student@example.test');
     expect(apiRequest).toHaveBeenLastCalledWith('/auth/password-reset/', { method: 'POST', body: { email: 'student@example.test' } });
     authApi.confirmPasswordReset({ token: 'reset-token', password: 'new-secure-pass' });
-    expect(apiRequest).toHaveBeenLastCalledWith('/auth/password-reset/confirm/', { method: 'POST', body: { token: 'reset-token', password: 'new-secure-pass' } });
+    expect(apiRequest).toHaveBeenLastCalledWith('/auth/password-reset/confirm/', { method: 'POST', body: { token: 'reset-token', password: 'new-secure-pass', confirm_password: 'new-secure-pass' } });
     authApi.me();
     expect(apiRequest).toHaveBeenLastCalledWith('/accounts/me/');
   });
