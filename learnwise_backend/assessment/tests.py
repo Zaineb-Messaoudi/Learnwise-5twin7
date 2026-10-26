@@ -278,6 +278,13 @@ class AttemptApiTests(APITestCase):
     def test_teacher_cannot_take_quiz(self):
         self.assertEqual(self.start(self.teacher).status_code, 403)
 
+    def test_user_without_role_cannot_take_quiz_but_can_read(self):
+        # `role` peut être vide tant que l'utilisateur n'a pas fini l'onboarding : pas encore étudiant.
+        self.client.force_authenticate(make_user('norole@x.com', None))
+        self.assertEqual(self.client.post(self.url).status_code, 403)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+        self.assertEqual(self.client.get(BASE).status_code, 200)        # lire les quiz publiés reste permis
+
     def test_cannot_start_on_draft_or_unknown_quiz(self):
         self.client.force_authenticate(self.teacher)
         draft_id = self.client.post(BASE, quiz_payload(self.course), format='json').data['id']
@@ -498,6 +505,12 @@ class ExerciseApiTests(APITestCase):
         self.assertEqual(self.client.patch(f'{EX}{exercise_id}/', {'title': 'x'}, format='json').status_code, 403)
         self.assertEqual(self.client.delete(f'{EX}{exercise_id}/').status_code, 403)
         self.assertEqual(self.client.post(f'{EX}{exercise_id}/publish/').status_code, 403)
+
+    def test_user_without_role_cannot_submit_answers(self):
+        exercise_id = self.create_published()
+        right, _ = self.choice_ids(exercise_id)
+        self.assertEqual(self.submit(exercise_id, right, user=make_user('norole@x.com', None)).status_code, 403)
+        self.assertFalse(ExerciseSubmission.objects.exists())
 
     def test_teacher_cannot_submit_answers(self):
         exercise_id = self.create_published()

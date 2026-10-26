@@ -23,8 +23,12 @@ def is_admin(user):
 
 
 def is_student(user):
-    """True pour un utilisateur connecté qui n'est ni professeur ni admin."""
-    return bool(user and user.is_authenticated and not is_teacher(user))
+    """
+    True seulement pour un utilisateur connecté dont le rôle est "etudiant".
+    Le rôle peut être vide (None) tant que l'utilisateur n'a pas terminé l'écran de choix du rôle :
+    il n'est alors ni étudiant ni professeur, et ne peut pas passer de quiz.
+    """
+    return bool(user and user.is_authenticated and getattr(user, 'role', None) == 'etudiant')
 
 
 class IsStudent(BasePermission):
