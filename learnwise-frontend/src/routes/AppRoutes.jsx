@@ -52,6 +52,8 @@ const ForgotPasswordPage = lazy(() => import('../features/public/pages/ForgotPas
 const UploadMaterialsPage = lazy(() => import('../features/public/pages/UploadMaterialsPage').then(module => ({ default: module.UploadMaterialsPage })));
 const ProfilePage = lazy(() => import('../features/student/pages/ProfilePage').then(module => ({ default: module.ProfilePage })));
 const SecuritySettingsPage = lazy(() => import('../features/student/pages/SecuritySettingsPage').then(module => ({ default: module.SecuritySettingsPage })));
+const EducatorProfilePage = lazy(() => import('../features/educator/pages/EducatorProfilePage').then(module => ({ default: module.EducatorProfilePage })));
+const EducatorSecuritySettingsPage = lazy(() => import('../features/educator/pages/EducatorSecuritySettingsPage').then(module => ({ default: module.EducatorSecuritySettingsPage })));
 
 function getRouteRole(backendRole) {
   const map = { etudiant: 'student', professeur: 'teacher', admin: 'admin' };
@@ -122,10 +124,12 @@ function WorkspaceRouter({ role }) {
   if (['/teacher/audio-processing', '/teacher/pdf-processing'].includes(pathname)) return <ContentManagementPage />;
   if (pathname === '/teacher/students' || /^\/teacher\/students\/[^/]+$/.test(pathname)) return <TeacherStudentsPage />;
   if (pathname === '/teacher/quizzes' || pathname === '/teacher/questions' || pathname === '/teacher/exercises' || pathname === '/teacher/ai-generation') return <AssessmentStudioPage />;
-  if (pathname === '/teacher/analytics') return <TeacherAnalyticsPage />;
-  if (pathname === '/teacher/ai-generation') return <TeacherAiGenerationPage />;
-  if (pathname === '/teacher/settings' || pathname === '/teacher/profile') return <SettingsPage role="teacher" />;
-  if (pathname === '/admin/dashboard') return <AdminDashboard />;
+if (pathname === '/teacher/analytics') return <TeacherAnalyticsPage />;
+    if (pathname === '/teacher/ai-generation') return <TeacherAiGenerationPage />;
+    if (pathname === '/teacher/profile') return <EducatorProfilePage />;
+    if (pathname === '/teacher/security') return <EducatorSecuritySettingsPage />;
+    if (pathname === '/teacher/settings' || pathname === '/teacher/profile') return <SettingsPage role="teacher" />;
+    if (pathname === '/admin/dashboard') return <AdminDashboard />;
   if (pathname === '/admin/users' || pathname === '/admin/students' || pathname === '/admin/teachers') return <AdminUserManagement />;
   if (pathname === '/admin/courses' || pathname === '/admin/quizzes' || pathname === '/admin/exercises') return <AdminContentPage />;
   if (pathname === '/admin/analytics' || pathname === '/admin/ai-usage') return <AdminAnalyticsPage />;
@@ -140,7 +144,7 @@ function isKnownWorkspacePath(pathname, role) {
   const patterns = role === 'student'
     ? [/^\/student\/(performance|achievements|sessions|activity|notifications|profile|settings)$/]
     : role === 'teacher'
-      ? [/^\/teacher\/dashboard$/, /^\/teacher\/courses$/, /^\/teacher\/courses\/new$/, /^\/teacher\/courses\/[^/]+(?:\/edit)?$/, /^\/teacher\/(materials|audio-processing|pdf-processing|transcriptions|summaries|ai-generation|quizzes|questions|exercises|analytics|profile|settings)$/, /^\/teacher\/students(?:\/[^/]+)?$/]
+      ? [/^\/teacher\/dashboard$/, /^\/teacher\/courses$/, /^\/teacher\/courses\/new$/, /^\/teacher\/courses\/[^/]+(?:\/edit)?$/, /^\/teacher\/(materials|audio-processing|pdf-processing|transcriptions|summaries|ai-generation|quizzes|questions|exercises|analytics|profile|security|settings)$/, /^\/teacher\/students(?:\/[^/]+)?$/]
       : [/^\/admin\/(dashboard|users|students|teachers|courses|quizzes|exercises|ai-usage|analytics|activity|notifications|settings|profile)$/, /^\/admin\/users\/[^/]+$/];
   return patterns.some(pattern => pattern.test(pathname));
 }

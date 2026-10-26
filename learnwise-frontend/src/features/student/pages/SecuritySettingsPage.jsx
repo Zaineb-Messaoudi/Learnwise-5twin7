@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Shield, Key, Smartphone, Clock, Activity, History, AlertTriangle, LogOut, CheckCircle, Copy, QrCode as QrCodeIcon, Trash2 } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { authApi } from '../../../api/auth.api';
+import { AppShell } from '../../../layouts/AppShell';
 import './SecuritySettingsPage.css';
 
 export function SecuritySettingsPage() {
@@ -236,7 +237,8 @@ export function SecuritySettingsPage() {
   };
 
   return (
-    <div className="security-page">
+    <AppShell>
+      <div className="security-page">
       <div className="security-header">
         <div className="security-avatar">{getInitials()}</div>
         <div className="security-user-info">
@@ -625,5 +627,6 @@ export function SecuritySettingsPage() {
         </div>
       )}
     </div>
+    </AppShell>
   );
 }
