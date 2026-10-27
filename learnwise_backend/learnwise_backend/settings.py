@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Load environment variables from .env file
-load_dotenv(BASE_DIR / '.env', override=True)
+load_dotenv(BASE_DIR / '.env', override=False)
 
 
 # Quick-start development settings - unsuitable for production
@@ -262,8 +262,12 @@ else:
 # Channels / WebSockets
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {'hosts': [REDIS_URL]},
     }
+} if REDIS_URL else {
+    # Suitable for local development and tests only; production requires REDIS_URL above.
+    'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}
 }
 
 # Media files

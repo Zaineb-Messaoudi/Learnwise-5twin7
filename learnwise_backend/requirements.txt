@@ -6,6 +6,7 @@ django-cors-headers>=4.3
 django-filter>=23.5
 channels>=4.0
 channels-redis>=4.1
+daphne>=4.1
 
 # Database
 # Using SQLite by default (no extra package needed)
