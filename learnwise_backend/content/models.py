@@ -304,7 +304,7 @@ class CoursePrerequisite(models.Model):
             models.UniqueConstraint(fields=['course', 'prerequisite_course'], name='unique_course_prerequisite'),
             models.CheckConstraint(
                 name='prerequisite_not_self',
-                check=~models.Q(course=models.F('prerequisite_course')),
+                condition=~models.Q(course=models.F('prerequisite_course')),
             ),
         ]
 
@@ -347,3 +347,138 @@ class CoursePrerequisite(models.Model):
     def save(self, *args, **kwargs):
         self.clean()
         super().save(*args, **kwargs)
+
+
+def badge_image_path(instance, filename):
+    """Generate path for badge images: badges/course_{course_id}/"""
+    ext = filename.split('.')[-1] if '.' in filename else 'png'
+    return f'badges/course_{instance.course.id}/' + filename
+
+
+class Badge(models.Model):
+    """Awarded to users who complete a course."""
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='badges',
+        help_text="The course this badge is for."
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='badges_earned',
+        help_text="The user who earned this badge."
+    )
+    image = models.ImageField(
+        upload_to=badge_image_path,
+        help_text="Badge image (PNG, optimized for web)."
+    )
+    name = models.CharField(
+        max_length=255,
+        help_text="Display name of the badge (e.g., 'Course Completion')."
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Optional description of the badge criteria."
+    )
+    criteria = models.JSONField(
+        default=dict,
+        help_text="JSON describing the criteria for earning the badge."
+    )
+    awarded_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['course', 'user']
+        ordering = ['-awarded_at']
+
+    def __str__(self):
+        return f"{self.name} - {self.user.email} on {self.course.title}"
+
+    def get_absolute_url(self):
+        from django.urls import reverse
+        return reverse('badge_detail', args=[self.id])
+
+
+def check_course_completion(course, user):
+    """Check if a user has completed all materials in a course.
+    
+    A course is considered complete when the user has viewed/accessed all
+    materials associated with the course (including materials in chapters).
+    """
+    from content.models import CourseMaterial
+    
+    # Get all materials in the course (including those in chapters)
+    all_materials = CourseMaterial.objects.filter(
+        models.Q(course=course) | models.Q(chapter__course=course)
+    ).distinct()
+    
+    total_materials = all_materials.count()
+    if total_materials == 0:
+        return False, 0
+    
+    # Check user's progress - materials they've accessed via UserSession
+    from accounts.models import UserSession
+    accessed_materials = UserSession.objects.filter(
+        user=user,
+        resource_type='material',
+        resource_id__in=[m.id for m in all_materials]
+    ).values('resource_id').distinct()
+    
+    accessed_ids = set(s['resource_id'] for s in accessed_materials)
+    completed_count = len(accessed_ids)
+    
+    is_complete = completed_count >= total_materials
+    
+    return is_complete, completed_count
+
+
+def send_course_reminders():
+    """Send reminder emails to students who haven't completed their courses."""
+    from django.core.mail import send_mail
+    from django.template.loader import render_to_string
+    from django.conf import settings
+    from datetime import timedelta
+    from .models import Course, UserSession
+    
+    now = timezone.now()
+    one_week_ago = now - timedelta(days=7)
+    
+    # Find courses with enrollments
+    courses = Course.objects.filter(status='published')
+    
+    for course in courses:
+        # Get students enrolled in this course
+        enrolled_users = UserSession.objects.filter(
+            resource_type='course',
+            resource_id=course.id,
+            created_at__gt=one_week_ago
+        ).values('user').distinct()
+        
+        for session in enrolled_users:
+            from accounts.models import User as CustomUser
+            user = CustomUser.objects.get(pk=session['user'])
+            
+            # Check if user has completed this course
+            is_complete, completed = check_course_completion(course, user)
+            
+            if not is_complete:
+                # Send reminder
+                context = {
+                    'user': user,
+                    'course': course,
+                    'completed': completed,
+                    'total': CourseMaterial.objects.filter(
+                        models.Q(course=course) | models.Q(chapter__course=course)
+                    ).distinct().count(),
+                }
+                
+                html_message = render_to_string('emails/course_reminder.html', context)
+                
+                send_mail(
+                    subject=f'Remember: Continue {course.title}',
+                    message='',
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    html_message=html_message,
+                )

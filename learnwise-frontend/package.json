@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "lint": "eslint src --ext .js,.jsx --max-warnings 0",
     "test:quality": "node scripts/quality-check.mjs",
     "test:smoke": "node scripts/smoke-test.mjs",
     "test": "jest --runInBand"
@@ -36,12 +37,19 @@
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
+    "@babel/eslint-parser": "^7.29.9",
     "@babel/preset-env": "^7.29.7",
     "@babel/preset-react": "^7.29.7",
+    "@eslint/js": "^9.39.1",
+    "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
     "babel-jest": "^30.5.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
     "jest": "^30.5.2",
     "jest-environment-jsdom": "^30.5.2"
   }

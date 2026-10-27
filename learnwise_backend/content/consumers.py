@@ -1,12 +1,14 @@
 import json
-from channels.generic.websocket import AsyncWebsocketConsumer
+import base64
 from django.contrib.auth import get_user_model
-from django.utils import timezone
+from django.http import Http404
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from asgiref.sync import sync_to_async
 
-from content.models import Course, CoursePresence
-
 User = get_user_model()
+
+from content.models import Course, CoursePresence
 
 
 class PresenceConsumer(AsyncWebsocketConsumer):
@@ -24,6 +26,24 @@ class PresenceConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.course_id = self.scope['url_route']['kwargs']['course_id']
         self.group_name = f'course_presence_{self.course_id}'
+
+        # Authenticate via JWT token from query string
+        jwt_auth = JWTAuthentication()
+        query_params = dict(
+            map(lambda x: (x[0].decode() if isinstance(x, tuple) else x),
+                self.scope.get('query_string', b'').decode().split('&'))
+        )
+        token = query_params.get('token')
+        if token:
+            try:
+                validated_token = jwt_auth.get_validated_token(token)
+                user_id = validated_token['user_id']
+                get_user = sync_to_async(User.objects.get)
+                user = await get_user(user_id)
+                self.scope['user'] = user
+            except (InvalidToken, TokenError, User.DoesNotExist):
+                pass
+
         self.user = self.scope['user']
 
         if not self.user or not self.user.is_authenticated:
