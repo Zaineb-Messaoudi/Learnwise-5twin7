@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary
+from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary, CoursePresence, CourseVersion, CoursePrerequisite
 
 
 @admin.register(Course)
@@ -59,3 +59,26 @@ class SummaryAdmin(admin.ModelAdmin):
     list_display = ['material', 'summary_type', 'created_at']
     list_filter = ['summary_type', 'created_at']
     search_fields = ['content']
+
+
+@admin.register(CoursePresence)
+class CoursePresenceAdmin(admin.ModelAdmin):
+    list_display = ['user', 'course', 'joined_at', 'last_seen']
+    list_filter = ['course', 'joined_at', 'last_seen']
+    search_fields = ['user__email', 'course__title']
+    readonly_fields = ['channel_name']
+
+
+@admin.register(CourseVersion)
+class CourseVersionAdmin(admin.ModelAdmin):
+    list_display = ['course', 'version_number', 'change_description', 'created_by', 'created_at']
+    list_filter = ['course', 'created_at', 'created_by']
+    search_fields = ['course__title', 'change_description', 'created_by__email']
+    readonly_fields = ['snapshot']
+
+
+@admin.register(CoursePrerequisite)
+class CoursePrerequisiteAdmin(admin.ModelAdmin):
+    list_display = ['course', 'prerequisite_course', 'created_at']
+    list_filter = ['course', 'prerequisite_course', 'created_at']
+    search_fields = ['course__title', 'prerequisite_course__title']

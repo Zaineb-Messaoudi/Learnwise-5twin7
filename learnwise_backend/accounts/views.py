@@ -1507,11 +1507,10 @@ class FaceVerifyView(APIView):
         # NOTE: This is an O(n) scan over all verified face profiles.
         # For production scale (>10k users), replace with a vector database
         # (pgvector, Pinecone, Weaviate) for approximate nearest neighbor search.
-        # Currently filtered to only student/professor roles since face login
-        # is only allowed for those account types.
+        # We match against ALL roles here so that face_login_allowed() below can
+        # correctly return 403 for admins/staff instead of a misleading 401.
         for face_profile in FaceProfile.objects.filter(
-            is_verified=True,
-            user__role__in=['etudiant', 'professeur']
+            is_verified=True
         ).select_related('user'):
             verified, distance = face_profile.verify_face(live_descriptor)
             if verified and distance < best_distance:

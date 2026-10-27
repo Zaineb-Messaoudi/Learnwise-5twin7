@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary
+from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary, CoursePresence, CourseVersion, CoursePrerequisite
 
 
 class ChapterSerializer(serializers.ModelSerializer):
@@ -25,6 +25,7 @@ class CourseSerializer(serializers.ModelSerializer):
             'id', 'title', 'description', 'level', 'language',
             'status', 'content_type', 'markdown_content', 'latex_content',
             'owner', 'owner_email', 'materials_count', 'chapters_count',
+            'scheduled_publish_at', 'estimated_reading_minutes', 'slug',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'owner', 'owner_email', 'materials_count', 'chapters_count', 'created_at', 'updated_at']
@@ -44,15 +45,16 @@ class CourseMaterialSerializer(serializers.ModelSerializer):
     chapter_title = serializers.SerializerMethodField(read_only=True)
     file_url = serializers.SerializerMethodField(read_only=True)
     file_size_mb = serializers.SerializerMethodField(read_only=True)
+    thumbnail_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = CourseMaterial
         fields = [
             'id', 'course', 'course_title', 'chapter', 'chapter_title',
-            'title', 'file', 'file_url', 'material_type',
+            'title', 'file', 'file_url', 'thumbnail_url', 'material_type',
             'file_size', 'file_size_mb', 'uploaded_at',
         ]
-        read_only_fields = ['id', 'course_title', 'chapter_title', 'file_url', 'file_size', 'file_size_mb', 'uploaded_at']
+        read_only_fields = ['id', 'course_title', 'chapter_title', 'file_url', 'thumbnail_url', 'file_size', 'file_size_mb', 'uploaded_at']
 
     def get_course_title(self, obj):
         return obj.course.title if obj.course else None
@@ -70,6 +72,13 @@ class CourseMaterialSerializer(serializers.ModelSerializer):
     def get_file_size_mb(self, obj):
         if obj.file_size:
             return round(obj.file_size / (1024 * 1024), 2)
+        return None
+
+    def get_thumbnail_url(self, obj):
+        if obj.thumbnail:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.thumbnail.url)
         return None
 
 
@@ -106,3 +115,37 @@ class SummarySerializer(serializers.ModelSerializer):
         model = Summary
         fields = ['id', 'material', 'content', 'summary_type', 'created_at']
         read_only_fields = ['id', 'created_at']
+
+
+class CourseVersionSerializer(serializers.ModelSerializer):
+    created_by_email = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CourseVersion
+        fields = [
+            'id', 'course', 'version_number', 'snapshot',
+            'change_description', 'created_by', 'created_by_email', 'created_at',
+        ]
+        read_only_fields = ['id', 'course', 'version_number', 'snapshot', 'created_by', 'created_by_email', 'created_at']
+
+    def get_created_by_email(self, obj):
+        return obj.created_by.email if obj.created_by else None
+
+
+class CoursePrerequisiteSerializer(serializers.ModelSerializer):
+    prerequisite_title = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CoursePrerequisite
+        fields = ['id', 'course', 'prerequisite_course', 'prerequisite_title', 'created_at']
+        read_only_fields = ['id', 'course', 'created_at']
+
+    def get_prerequisite_title(self, obj):
+        return obj.prerequisite_course.title if obj.prerequisite_course else None
+
+    def create(self, validated_data):
+        # course is set from the view context (URL pk), not from request data
+        instance = CoursePrerequisite(**validated_data)
+        instance.full_clean()  # runs clean() for circular dependency check
+        instance.save()
+        return instance

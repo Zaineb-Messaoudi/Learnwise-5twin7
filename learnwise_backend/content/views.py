@@ -8,11 +8,11 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 
-from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary
+from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary, CoursePresence, CourseVersion, CoursePrerequisite
 from .serializers import (
     CourseSerializer, ChapterSerializer, CourseMaterialSerializer,
     AudioMaterialSerializer, DocumentMaterialSerializer, VideoMaterialSerializer,
-    TranscriptionSerializer, SummarySerializer,
+    TranscriptionSerializer, SummarySerializer, CourseVersionSerializer, CoursePrerequisiteSerializer,
 )
 
 
@@ -136,6 +136,306 @@ class CourseViewSet(viewsets.ModelViewSet):
             'archived': qs.filter(status='archived').count(),
         }
         return Response(data)
+
+    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated])
+    def presence(self, request, pk=None):
+        """Return users currently viewing this course (WebSocket presence)."""
+        course = self.get_object()
+        presences = CoursePresence.objects.filter(course=course).select_related('user').order_by('-last_seen')
+        data = [
+            {
+                'user_id': p.user.id,
+                'email': p.user.email,
+                'name': p.user.name if hasattr(p.user, 'name') else f'{p.user.first_name} {p.user.last_name}'.strip() or p.user.email,
+                'role': p.user.role,
+                'joined_at': p.joined_at.isoformat(),
+                'last_seen': p.last_seen.isoformat(),
+            }
+            for p in presences
+        ]
+        return Response({'course_id': course.id, 'users': data, 'count': len(data)})
+
+    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated])
+    def versions(self, request, pk=None):
+        """List all version snapshots for this course."""
+        course = self.get_object()
+        versions = CourseVersion.objects.filter(course=course).order_by('-version_number')
+        serializer = CourseVersionSerializer(versions, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def create_version(self, request, pk=None):
+        """Manually create a version snapshot of this course."""
+        course = self.get_object()
+        if course.owner != request.user and not request.user.is_superuser:
+            return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
+
+        change_description = request.data.get('change_description', '')
+        version = CourseVersion.create_snapshot(course, request.user, change_description)
+        serializer = CourseVersionSerializer(version, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def rollback(self, request, pk=None):
+        """Rollback this course to a previous version snapshot."""
+        course = self.get_object()
+        if course.owner != request.user and not request.user.is_superuser:
+            return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
+
+        version_id = request.data.get('version_id')
+        if not version_id:
+            return Response({'detail': 'version_id requis.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            version = CourseVersion.objects.get(id=version_id, course=course)
+        except CourseVersion.DoesNotExist:
+            return Response({'detail': 'Version introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Create a snapshot of current state before rolling back
+        CourseVersion.create_snapshot(course, request.user, f'Auto-snapshot before rollback to v{version.version_number}')
+
+        # Apply the target version
+        version.apply_to(course)
+
+        serializer = self.get_serializer(course)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get', 'post'], permission_classes=[IsAuthenticated])
+    def prerequisites(self, request, pk=None):
+        """List or add prerequisites for this course."""
+        course = self.get_object()
+        if request.method == 'GET':
+            prereqs = CoursePrerequisite.objects.filter(course=course).select_related('prerequisite_course')
+            serializer = CoursePrerequisiteSerializer(prereqs, many=True, context={'request': request})
+            return Response(serializer.data)
+
+        # POST - add a prerequisite
+        if course.owner != request.user and not request.user.is_superuser:
+            return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = CoursePrerequisiteSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            try:
+                serializer.save(course=course)
+            except Exception as e:
+                return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['delete'], permission_classes=[IsAuthenticated], url_path='prerequisites/(?P<prereq_id>\\d+)')
+    def remove_prerequisite(self, request, pk=None, prereq_id=None):
+        """Remove a prerequisite from this course."""
+        course = self.get_object()
+        if course.owner != request.user and not request.user.is_superuser:
+            return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            prereq = CoursePrerequisite.objects.get(id=prereq_id, course=course)
+            prereq.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except CoursePrerequisite.DoesNotExist:
+            return Response({'detail': 'Prérequis introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def duplicate(self, request, pk=None):
+        """Duplicate this course with all chapters and materials (draft status)."""
+        course = self.get_object()
+        if course.owner != request.user and not request.user.is_superuser:
+            return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
+
+        new_title = request.data.get('title', f"{course.title} (Copie)")
+
+        # Duplicate course
+        new_course = Course.objects.create(
+            title=new_title,
+            description=course.description,
+            level=course.level,
+            language=course.language,
+            status='draft',
+            content_type=course.content_type,
+            markdown_content=course.markdown_content,
+            latex_content=course.latex_content,
+            owner=request.user,
+        )
+
+        # Duplicate chapters
+        chapter_map = {}
+        for chapter in course.chapters.all():
+            new_chapter = Chapter.objects.create(
+                course=new_course,
+                title=chapter.title,
+                description=chapter.description,
+                order=chapter.order,
+            )
+            chapter_map[chapter.id] = new_chapter
+
+        # Duplicate materials
+        for material in course.materials.all():
+            new_material = CourseMaterial.objects.create(
+                course=new_course,
+                chapter=chapter_map.get(material.chapter_id) if material.chapter_id else None,
+                title=material.title,
+                material_type=material.material_type,
+            )
+            # Copy file if exists
+            if material.file:
+                new_material.file = material.file
+                new_material.file_size = material.file_size
+            new_material.save()
+
+            # Duplicate type-specific details
+            if material.material_type == 'audio':
+                try:
+                    audio = material.audio_details
+                    AudioMaterial.objects.create(
+                        material=new_material,
+                        duration=audio.duration,
+                        language=audio.language,
+                    )
+                except AudioMaterial.DoesNotExist:
+                    pass
+            elif material.material_type == 'document':
+                try:
+                    doc = material.document_details
+                    DocumentMaterial.objects.create(
+                        material=new_material,
+                        page_count=doc.page_count,
+                        mime_type=doc.mime_type,
+                    )
+                except DocumentMaterial.DoesNotExist:
+                    pass
+            elif material.material_type == 'video':
+                try:
+                    video = material.video_details
+                    VideoMaterial.objects.create(
+                        material=new_material,
+                        duration=video.duration,
+                        resolution=video.resolution,
+                        language=video.language,
+                    )
+                except VideoMaterial.DoesNotExist:
+                    pass
+
+        serializer = self.get_serializer(new_course)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated])
+    def export(self, request, pk=None):
+        """Export course as ZIP: metadata JSON + all material files."""
+        course = self.get_object()
+        user = request.user
+        if user.role == 'etudiant' and course.status != 'published':
+            return Response({'detail': 'Cours non publié.'}, status=status.HTTP_403_FORBIDDEN)
+        if user.role == 'professeur' and course.owner != user and not user.is_superuser:
+            return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
+
+        import zipfile
+        import io
+        import json
+        from django.utils import timezone
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # Course metadata
+            course_data = {
+                'id': course.id,
+                'title': course.title,
+                'description': course.description,
+                'level': course.level,
+                'language': course.language,
+                'status': course.status,
+                'content_type': course.content_type,
+                'markdown_content': course.markdown_content,
+                'latex_content': course.latex_content,
+                'scheduled_publish_at': course.scheduled_publish_at.isoformat() if course.scheduled_publish_at else None,
+                'estimated_reading_minutes': course.estimated_reading_minutes,
+                'created_at': course.created_at.isoformat(),
+                'updated_at': course.updated_at.isoformat(),
+                'owner_email': course.owner.email if course.owner else None,
+            }
+            zf.writestr('course_metadata.json', json.dumps(course_data, indent=2, ensure_ascii=False))
+
+            # Chapters
+            chapters_data = []
+            for chapter in course.chapters.all():
+                chapters_data.append({
+                    'id': chapter.id,
+                    'title': chapter.title,
+                    'description': chapter.description,
+                    'order': chapter.order,
+                    'created_at': chapter.created_at.isoformat(),
+                })
+            zf.writestr('chapters.json', json.dumps(chapters_data, indent=2, ensure_ascii=False))
+
+            # Materials + files
+            materials_data = []
+            for material in course.materials.all():
+                mat_entry = {
+                    'id': material.id,
+                    'title': material.title,
+                    'material_type': material.material_type,
+                    'file_size': material.file_size,
+                    'uploaded_at': material.uploaded_at.isoformat(),
+                    'file_name': None,
+                }
+                if material.file:
+                    try:
+                        mat_entry['file_name'] = material.file.name
+                        zf.write(material.file.path, arcname=f"files/{material.file.name}")
+                    except (FileNotFoundError, ValueError):
+                        pass
+                materials_data.append(mat_entry)
+            zf.writestr('materials.json', json.dumps(materials_data, indent=2, ensure_ascii=False))
+
+        buffer.seek(0)
+        response = FileResponse(
+            buffer,
+            as_attachment=True,
+            filename=f"course_{course.id}_export_{timezone.now().strftime('%Y%m%d_%H%M%S')}.zip",
+        )
+        response['Content-Type'] = 'application/zip'
+        return response
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def submit_for_review(self, request, pk=None):
+        """Submit a draft course for admin review."""
+        course = self.get_object()
+        if course.owner != request.user and not request.user.is_superuser:
+            return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
+        if course.status != 'draft':
+            return Response({'detail': 'Seul un cours en brouillon peut être soumis.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        course.status = 'pending_review'
+        course.save(update_fields=['status', 'updated_at'])
+        return Response(CourseSerializer(course, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def approve(self, request, pk=None):
+        """Approve a pending_review course (admin only)."""
+        if not (request.user.is_superuser or request.user.role == 'admin'):
+            return Response({'detail': 'Seuls les administrateurs peuvent approuver.'}, status=status.HTTP_403_FORBIDDEN)
+
+        course = self.get_object()
+        if course.status != 'pending_review':
+            return Response({'detail': 'Ce cours n\'est pas en attente de révision.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        course.status = 'published'
+        course.save(update_fields=['status', 'updated_at'])
+        return Response(CourseSerializer(course, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def reject(self, request, pk=None):
+        """Reject a pending_review course, returning it to draft (admin only)."""
+        if not (request.user.is_superuser or request.user.role == 'admin'):
+            return Response({'detail': 'Seuls les administrateurs peuvent rejeter.'}, status=status.HTTP_403_FORBIDDEN)
+
+        course = self.get_object()
+        if course.status != 'pending_review':
+            return Response({'detail': 'Ce cours n\'est pas en attente de révision.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        course.status = 'draft'
+        course.save(update_fields=['status', 'updated_at'])
+        return Response(CourseSerializer(course, context={'request': request}).data)
 
 
 class ChapterViewSet(viewsets.ModelViewSet):
@@ -290,6 +590,21 @@ class CourseMaterialViewSet(viewsets.ModelViewSet):
             return response
         except FileNotFoundError:
             raise Http404("Fichier introuvable sur le disque.")
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def generate_thumbnail(self, request, pk=None):
+        """Generate a thumbnail preview for this material using Pillow."""
+        material = self.get_object()
+        user = request.user
+        if material.course.owner != user and not user.is_superuser:
+            return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
+
+        from content.thumbnail_utils import generate_thumbnail
+        generate_thumbnail(material)
+        material.save(update_fields=['thumbnail'])
+
+        serializer = self.get_serializer(material)
+        return Response(serializer.data)
 
 
 class AudioMaterialViewSet(viewsets.ModelViewSet):

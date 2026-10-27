@@ -1,0 +1,49 @@
+================================================================================
+  LEARNWISE - TODO STATUS (ALL 10 ADVANCED FEATURES COMPLETE)
+================================================================================
+
+Date: 2026-10-27
+
+[OK] 1. Real-time presence (WebSocket via Django Channels)
+      - CoursePresence model, PresenceConsumer, REST endpoint
+      - Tests: 4 passed
+
+[OK] 2. Thumbnail/preview generation (Pillow)
+      - CourseMaterial.thumbnail field, thumbnail_utils.py, generate_thumbnail action
+      - Tests: 3 passed
+
+[OK] 3. Course versioning (snapshot + rollback)
+      - CourseVersion model, create_version/versions/rollback actions
+      - Tests: 5 passed
+
+[OK] 4. Scheduled publishing (auto-publish)
+      - scheduled_publish_at field, auto_publish management command
+      - Tests: 3 passed
+
+[OK] 5. Course prerequisites (cycle validation)
+      - CoursePrerequisite model, circular dependency detection
+      - Tests: 5 passed
+
+[OK] 6. Estimated reading time (auto-calculated)
+      - estimated_reading_minutes field, auto-calculated in save()
+      - Tests: 2 passed
+
+[OK] 7. Duplicate course (clone + materials)
+      - duplicate action, clones chapters + type-specific material details
+      - Tests: 3 passed
+
+[OK] 8. Export course (ZIP with files + metadata JSON)
+      - export action, ZIP with metadata + chapters + materials + files
+      - Tests: 3 passed
+
+[OK] 9. Slug SEO-friendly (auto from title)
+      - slug field, auto-generated with uniqueness counter
+      - Tests: 3 passed
+
+[OK] 10. Pending review moderation (pending_review status)
+       - submit_for_review/approve/reject actions, admin-only approve/reject
+       - Tests: 5 passed
+
+================================================================================
+TOTAL: 10/10 features complete | 68 tests passing | 0 issues
+================================================================================

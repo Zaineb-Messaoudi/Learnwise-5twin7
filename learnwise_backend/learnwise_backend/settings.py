@@ -287,16 +287,23 @@ USE_S3 = os.getenv('USE_S3', 'False').lower() == 'true'
 if USE_S3:
     if 'storages' not in INSTALLED_APPS:
         INSTALLED_APPS += ['storages']
-    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-
-    AWS_ACCESS_KEY_ID = os.getenv('SUPABASE_SECRET_KEY')
-    AWS_SECRET_ACCESS_KEY = os.getenv('SUPABASE_SECRET_KEY')
-    AWS_STORAGE_BUCKET_NAME = os.getenv('SUPABASE_BUCKET', 'course-materials')
-    _project_url = os.getenv('SUPABASE_PROJECT_URL', '')
-    AWS_S3_ENDPOINT_URL = _project_url.rstrip('/') + '/storage/v1/s3' if _project_url else None
-    AWS_S3_REGION_NAME = os.getenv('SUPABASE_REGION', 'us-east-1')
-    AWS_S3_FILE_OVERWRITE = False
-    AWS_DEFAULT_ACL = None
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+            "OPTIONS": {
+                "access_key": os.getenv('SUPABASE_PUBLISHED_KEY'),
+                "secret_key": os.getenv('SUPABASE_SECRET_KEY'),
+                "bucket_name": os.getenv('SUPABASE_BUCKET', 'course-materials'),
+                "endpoint_url": (os.getenv('SUPABASE_PROJECT_URL', '').rstrip('/') + '/storage/v1/s3') if os.getenv('SUPABASE_PROJECT_URL') else None,
+                "region_name": os.getenv('SUPABASE_REGION', 'us-east-1'),
+                "file_overwrite": False,
+                "default_acl": None,
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
 
 # Frontend URL for email links
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
