@@ -905,6 +905,20 @@ letter-spacing:-.8px}
 color:#65ae97;
 white-space:nowrap}
 .section-block{margin-top:3px}
+.recommendation-section{margin-top:28px}
+.recommendation-live{display:inline-flex;align-items:center;gap:7px;color:#52618a;font-size:11px;font-weight:700}
+.recommendation-live i{width:8px;height:8px;border-radius:50%;background:#57d8ff;box-shadow:0 0 0 4px #57d8ff2b}
+.recommendation-grid{display:grid;gap:12px}
+.recommendation-card{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:15px;padding:18px;border:1px solid #dbe4ff;border-radius:18px;background:#fff}
+.recommendation-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;background:#d8ff45;color:#17205c}
+.recommendation-copy small{color:#2848d8;font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.recommendation-copy h3{margin:4px 0;color:#17205c;font-family:Manrope,sans-serif;font-size:15px}
+.recommendation-copy p{margin:0;color:#72809d;font-size:12px;line-height:1.5}
+.recommendation-time{display:inline-flex;align-items:center;gap:5px;margin-top:8px;color:#52618a;font-size:10px;font-weight:700}
+.recommendation-clear{display:flex;align-items:flex-start;gap:14px;padding:22px;border:1px solid #dbe4ff;border-radius:18px;background:#fff;color:#2848d8}
+.recommendation-clear h3{margin:0 0 5px;color:#17205c;font-size:14px}
+.recommendation-clear p{margin:0;color:#72809d;font-size:12px}
+@media(max-width:700px){.recommendation-card{grid-template-columns:42px 1fr}.recommendation-card .button{grid-column:1 / -1;justify-content:center}.recommendation-live{display:none}}
 .section-title{display:flex;
 justify-content:space-between;
 align-items:end;

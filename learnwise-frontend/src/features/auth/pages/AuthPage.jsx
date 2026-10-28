@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, Check, LockKeyhole, Sparkles, Loader2 } from 'lucide-react';
+import { ArrowRight, Check, LockKeyhole, Sparkles, Loader2, ScanFace } from 'lucide-react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '../../../api/auth.api';
 import { isBackendApiEnabled } from '../../../api/client';
@@ -15,6 +15,12 @@ export function AuthPage({ register = false }) {
   const { login, socialLogin } = useAuth();
   const [loading, setLoading] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  // Set once the backend answers a login attempt with `requires_2fa: true` (HTTP 428).
+  // The password form then also collects a TOTP code or backup code and resubmits.
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [totpToken, setTotpToken] = useState('');
+  const [backupCode, setBackupCode] = useState('');
   const roleParam = searchParams.get('role') === 'teacher' ? 'teacher' : 'student';
   const next = searchParams.get('next') || (register && roleParam === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
 
@@ -83,10 +89,13 @@ export function AuthPage({ register = false }) {
       }
 
       const { provider, role, next: nextPath } = state;
-      setLoading(provider);
+
+      // Map frontend role to backend role
+      const roleMap = { student: 'etudiant', teacher: 'professeur' };
+      const backendRole = roleMap[role] || 'etudiant';
 
       try {
-        const result = await socialLogin(provider, null, role, code);
+        const result = await socialLogin(provider, null, backendRole, code);
         if (result.success) {
           navigate(nextPath || next, { replace: true });
         } else {
@@ -109,6 +118,7 @@ export function AuthPage({ register = false }) {
   const submit = async event => {
     event.preventDefault();
     setError('');
+    setFieldErrors({});
     const data = new FormData(event.currentTarget);
     const password = String(data.get('password') || '');
     const confirmation = String(data.get('confirmPassword') || '');
@@ -117,7 +127,15 @@ export function AuthPage({ register = false }) {
       return;
     }
     const email = String(data.get('email') || '');
-    const role = String(data.get('role') || roleParam);
+    const rawRole = String(data.get('role') || '');
+    const roleMap = { student: 'etudiant', teacher: 'professeur' };
+    // Default to 'student' if no role provided (e.g., no ?role= query param)
+    const role = rawRole || roleParam || 'student';
+    const backendRole = roleMap[role] || role;
+    if (needs2FA && !totpToken && !backupCode) {
+      setError('Enter the 6-digit code from your authenticator app, or a backup code.');
+      return;
+    }
     if (!isBackendApiEnabled) {
       login({
         id: 'preview-user',
@@ -131,20 +149,68 @@ export function AuthPage({ register = false }) {
     setLoading('email');
     try {
       const response = register
-        ? await authApi.register({ email, password, first_name: String(data.get('firstName') || ''), last_name: String(data.get('lastName') || ''), role })
-        : await authApi.login({ email, password });
-      if (!response?.user || !response.access || !response.refresh) {
+        ? await authApi.register({ email, password, confirm_password: confirmation, first_name: String(data.get('firstName') || ''), last_name: String(data.get('lastName') || ''), role: backendRole })
+        : await authApi.login({
+            email,
+            password,
+            ...(totpToken ? { totp_token: totpToken } : {}),
+            ...(backupCode ? { backup_code: backupCode } : {}),
+          });
+      if (!response?.user) {
         throw new Error('The server returned an incomplete sign-in response.');
       }
       const user = {
         ...response.user,
         name: response.user.name || `${response.user.first_name || ''} ${response.user.last_name || ''}`.trim() || response.user.email,
       };
-      login(user, { access: response.access, refresh: response.refresh });
-      navigate(next, { replace: true });
+      
+      if (register) {
+        // For registration, redirect to the "check your inbox" page (no tokens yet).
+        // The email address travels via navigation state, not the URL.
+        navigate('/auth/verify-email', { replace: true, state: { email: user.email } });
+      } else {
+        // For login, proceed normally (email must be verified)
+        if (!user.email_verified) {
+          setError('Please verify your email before logging in. Check your inbox for the verification link.');
+          setLoading('');
+          return;
+        }
+        if (!response?.access || !response?.refresh) {
+          throw new Error('The server returned an incomplete sign-in response.');
+        }
+        login(user, { access: response.access, refresh: response.refresh });
+        navigate(next, { replace: true });
+      }
     } catch (cause) {
-      const validationError = Object.values(cause?.response?.data?.errors || {}).flat()[0];
-      setError(cause?.response?.data?.detail || validationError || cause.message || 'Could not authenticate. Check your details and try again.');
+      if (cause?.response?.data?.requires_2fa) {
+        // Either this was the first, password-only attempt (account has 2FA enabled)
+        // or the TOTP/backup code just submitted was wrong. Either way, (keep) showing
+        // the 2FA fields lets the person try again without retyping their password.
+        setNeeds2FA(true);
+        setError(cause?.response?.data?.detail || 'Enter your two-factor authentication code.');
+        setLoading('');
+        return;
+      }
+      // Map Django REST framework field errors (e.g. {"email": ["..."]}) to the matching inputs.
+      const responseData = cause?.response?.data;
+      // DRF normally returns field errors at the top level
+      // ({ email: ['...'], password: ['...'] }). Some APIs wrap them in
+      // `errors`, so support both formats.
+      const backendErrors = responseData?.errors || (
+        responseData && typeof responseData === 'object' && !Array.isArray(responseData)
+          ? responseData
+          : {}
+      );
+      const fieldMap = { email: 'email', password: 'password', confirm_password: 'confirmPassword', first_name: 'firstName', last_name: 'lastName' };
+      const nextFieldErrors = {};
+      Object.entries(backendErrors).forEach(([field, messages]) => {
+        const inputName = fieldMap[field] || field;
+        if (Array.isArray(messages) && messages.length) nextFieldErrors[inputName] = String(messages[0]);
+        else if (typeof messages === 'string' && field !== 'detail') nextFieldErrors[inputName] = messages;
+      });
+      setFieldErrors(nextFieldErrors);
+      const generalError = responseData?.detail || cause.message || 'Could not authenticate. Check your details and try again.';
+      setError(Object.keys(nextFieldErrors).length ? '' : generalError);
     } finally {
       setLoading('');
     }
@@ -197,19 +263,36 @@ export function AuthPage({ register = false }) {
               </button>
             </>
           )}
+          {/* Face Login Button */}
+          {isBackendApiEnabled && !register && (
+            <button
+              type="button"
+              className="social-button face"
+              onClick={() => navigate('/auth/face-login', { replace: true })}
+            >
+              <ScanFace size={18} style={{marginRight: 8}} />
+              <span>Sign in with Face</span>
+            </button>
+          )}
         </div>
         <div className="auth-divider"><span>{(googleConfigured || facebookConfigured) ? 'Continue with your Learnwise account' : 'or use your email'}</span></div>
         <form className="auth-form-modern" onSubmit={submit}>
-          {register && <div className="auth-field-row"><label>First name<input name="firstName" placeholder={roleParam === 'teacher' ? 'Maya' : 'Sarah'} autoComplete="given-name" required /></label><label>Last name<input name="lastName" placeholder="Chen" autoComplete="family-name" required /></label></div>}
-          <label>Email address<input name="email" type="email" placeholder="you@example.com" autoComplete="email" required /></label>
-          <label>Password<div className="password-field"><input name="password" type="password" placeholder="At least 8 characters" autoComplete={register ? 'new-password' : 'current-password'} minLength="8" required /><LockKeyhole size={15} /></div></label>
-          {register && <label>Confirm password<div className="password-field"><input name="confirmPassword" type="password" placeholder="Repeat your password" autoComplete="new-password" minLength="8" required /><LockKeyhole size={15} /></div></label>}
-          {register && <label>How will you use Learnwise?<select name="role" defaultValue={roleParam}><option value="student">As a student</option><option value="teacher">As an educator</option></select></label>}
+          {register && <div className="auth-field-row"><label>First name<input name="firstName" placeholder={roleParam === 'teacher' ? 'Maya' : 'Sarah'} autoComplete="given-name" required />{fieldErrors.firstName && <span className="field-error">{fieldErrors.firstName}</span>}</label><label>Last name<input name="lastName" placeholder="Chen" autoComplete="family-name" required />{fieldErrors.lastName && <span className="field-error">{fieldErrors.lastName}</span>}</label></div>}
+          <label>Email address<input name="email" type="email" placeholder="you@example.com" autoComplete="email" required />{fieldErrors.email && <span className="field-error">{fieldErrors.email}</span>}</label>
+          <label>Password<div className="password-field"><input name="password" type="password" placeholder="At least 8 characters" autoComplete={register ? 'new-password' : 'current-password'} minLength="8" required /><LockKeyhole size={15} /></div>{fieldErrors.password && <span className="field-error">{fieldErrors.password}</span>}</label>
+          {register && <label>Confirm password<div className="password-field"><input name="confirmPassword" type="password" placeholder="Repeat your password" autoComplete="new-password" minLength="8" required /><LockKeyhole size={15} /></div>{fieldErrors.confirmPassword && <span className="field-error">{fieldErrors.confirmPassword}</span>}</label>}
+          {register && <label>How will you use Learnwise?<select name="role" defaultValue={roleParam}><option value="student">As a student</option><option value="teacher">As an educator</option></select>{fieldErrors.role && <span className="field-error">{fieldErrors.role}</span>}</label>}
+          {!register && needs2FA && (
+            <div className="auth-2fa-fields">
+              <label>Authenticator code<input value={totpToken} onChange={event => setTotpToken(event.target.value)} inputMode="numeric" placeholder="6-digit code" maxLength={6} autoComplete="one-time-code" autoFocus /></label>
+              <label>or a backup code<input value={backupCode} onChange={event => setBackupCode(event.target.value)} placeholder="XXXXX-XXXXX" maxLength={21} /></label>
+            </div>
+          )}
           {!register && <div className="auth-form-meta"><label className="remember-label"><input type="checkbox" /> Remember me</label><Link to="/auth/forgot-password">Forgot password?</Link></div>}
           {error && <p className="form-error" role="alert">{error}</p>}
           <button className="auth-submit" type="submit" disabled={Boolean(loading)}>{loading === 'email' ? 'Connecting…' : loading === 'google' || loading === 'facebook' ? <Loader2 size={16} /> : register ? 'Create my account' : 'Log in'} <ArrowRight size={16} /></button>
         </form>
-        <p className="auth-legal">By continuing, you agree to Learnwise's <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+        <p className="auth-legal">By continuing, you agree to Learnwise&apos;s <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
         <p className="auth-switch">{register ? 'Already have an account?' : 'New to Learnwise?'} <Link to={register ? '/auth/login' : '/auth/register'}>{register ? 'Log in' : 'Create an account'}</Link></p>
         <div className="auth-secure"><Check size={14} /> {isBackendApiEnabled ? 'Secure sign-in through the Learnwise service' : 'Preview sign-in · credentials are not sent to a server'}</div>
       </div>

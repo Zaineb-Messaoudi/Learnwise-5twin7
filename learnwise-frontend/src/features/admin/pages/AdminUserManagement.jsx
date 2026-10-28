@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { authApi } from '../../../../api/auth.api';
+import { authApi } from '../../../api/auth.api';
 import { Search, Filter, MoreVertical, Shield, UserX, UserCheck, Trash2, Edit, Mail, AlertCircle, CheckCircle, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import './AdminUserManagement.css';
 
@@ -212,6 +212,7 @@ export function AdminUserManagement() {
             <p>Try adjusting your filters or search terms.</p>
           </div>
         ) : (
+          <>
           <table className="users-table">
             <thead>
               <tr>
@@ -308,6 +309,7 @@ export function AdminUserManagement() {
               </button>
             </div>
           )}
+          </>
         )}
       </div>
 

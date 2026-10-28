@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, CirclePlay, Play, Sparkles, Loader2, HelpCircle, FileText, Music, BookOpen } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '../../../layouts/AppShell';
 import { Button, PageHeader, ProgressBar } from '../../../components/shared/Primitives';
@@ -11,8 +11,13 @@ import { analyticsApi } from '../../../api/analytics.api';
 import { quizzesApi } from '../../../api/quizzes.api';
 import { isBackendApiEnabled } from '../../../api/client';
 import { EngagementTracker } from '../../../components/ui/EngagementTracker';
+import { usePresence } from '../../../api/presence.api';
 import { PDFViewer } from '../../../components/ui/PDFViewer';
 import { EnhancedAudioPlayer } from '../../../components/ui/EnhancedAudioPlayer';
+import { LessonNavigator } from '../components/LessonNavigator';
+import { VideoPlayer } from '../components/VideoPlayer';
+import PropTypes from 'prop-types';
+import '../components/courses.css';
 
 const demoCourse = {
   id: 'ai-101',
@@ -37,19 +42,86 @@ function materialUrl(material) {
   return material?.file || material?.file_url || material?.url || material?.src || '';
 }
 
+function computeProgress(course, isBackendApiEnabled) {
+  return Number(
+    course?.progress?.percentage ??
+      course?.progress?.completion_percentage ??
+      course?.progress ??
+      (isBackendApiEnabled ? 0 : 68),
+  );
+}
+
+async function pollGeneration(generationId, quizzesApi) {
+  let generation = await quizzesApi.generation(generationId);
+  const attempts = Array.from({ length: 30 }, (_, i) => i);
+  await Promise.all(
+    attempts.map(async () => {
+      if (!generation.status || !['queued', 'processing'].includes(generation.status)) {
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      generation = await quizzesApi.generation(generationId);
+    }),
+  );
+  return generation;
+}
+
+function fetchContent(
+  selected,
+  isBackendApiEnabled,
+  setTranscript,
+  setSummary,
+  setContentLoading,
+  setContentError,
+) {
+  if (!selected) {
+    setTranscript('');
+    setSummary('');
+    return;
+  }
+  if (!isBackendApiEnabled) {
+    setTranscript(selected.kind === 'audio' ? demoTranscript : '');
+    setSummary(demoSummary);
+    return;
+  }
+  let active = true;
+  setContentLoading(true);
+  setContentError('');
+  const requests = [];
+  if (selected.kind === 'audio') {
+    requests.push(
+      materialsApi.transcription(selected.id)
+        .then(result => { if (active) {setTranscript(result.text || '');} })
+        .catch(() => { if (active) {setContentError('Could not load the transcript.');} }),
+    );
+  }
+  if (selected.status === 'completed') {
+    requests.push(
+      materialsApi.summary(selected.id)
+        .then(result => { if (active) {setSummary(result.text || '');} })
+        .catch(() => { if (active) {setContentError('Could not load the summary.');} }),
+    );
+  }
+  Promise.allSettled(requests).finally(() => { if (active) {setContentLoading(false);} });
+  return () => { active = false; };
+}
+
 export function CourseDetailPage({ player = false }) {
   const { id = 'ai-101' } = useParams();
-  const [session, setSession] = useState(null);
+  const navigate = useNavigate();
+  const { totalActive } = usePresence(id);
   const [selectedMaterial, setSelectedMaterial] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
   const [quizGenerationError, setQuizGenerationError] = useState('');
-  const [quizGenerationSuccess, setQuizGenerationSuccess] = useState(false);
+  const [quizGenerationSuccess, setQuizGenerationSuccess] = useState('');
   const [transcript, setTranscript] = useState('');
   const [summary, setSummary] = useState('');
   const [contentLoading, setContentLoading] = useState(false);
   const [contentError, setContentError] = useState('');
+  const [session, setSession] = useState(null);
+  const [completedMaterials, setCompletedMaterials] = useState(new Set());
   const courseQuery = useQuery({
     queryKey: ['content', 'course', id],
     queryFn: () => coursesApi.detail(id),
@@ -60,59 +132,113 @@ export function CourseDetailPage({ player = false }) {
     queryFn: () => materialsApi.list(id),
     enabled: isBackendApiEnabled,
   });
+  const completionsQuery = useQuery({
+    queryKey: ['content', 'lesson-completions'],
+    queryFn: () => materialsApi.listCompletions(),
+    enabled: isBackendApiEnabled,
+  });
   const course = isBackendApiEnabled ? courseQuery.data : demoCourse;
   const materials = isBackendApiEnabled ? recordsFrom(materialsQuery.data) : demoMaterials;
   const selected = materials.find(material => material.id === selectedMaterial) || materials.find(material => material.status === 'completed') || materials[0];
-  const progress = Number(course?.progress?.percentage ?? course?.progress?.completion_percentage ?? course?.progress ?? (isBackendApiEnabled ? 0 : 68));
+  const progress = computeProgress(course, isBackendApiEnabled);
 
   useEffect(() => {
-    if (!selected) {
-      setTranscript('');
-      setSummary('');
-      return;
+    if (isBackendApiEnabled && completionsQuery.data) {
+      const ids = new Set((completionsQuery.data || []).map(c => c.material_id));
+      setCompletedMaterials(ids);
     }
-    if (!isBackendApiEnabled) {
-      setTranscript(selected.kind === 'audio' ? demoTranscript : '');
-      setSummary(demoSummary);
-      return;
-    }
-    let active = true;
-    setContentLoading(true);
-    setContentError('');
-    const requests = [];
-    if (selected.kind === 'audio') requests.push(materialsApi.transcription(selected.id).then(result => { if (active) setTranscript(result.text || ''); }).catch(() => { if (active) setContentError('Could not load the transcript.'); }));
-    if (selected.status === 'completed') requests.push(materialsApi.summary(selected.id).then(result => { if (active) setSummary(result.text || ''); }).catch(() => { if (active) setContentError('Could not load the summary.'); }));
-    Promise.allSettled(requests).finally(() => { if (active) setContentLoading(false); });
-    return () => { active = false; };
-  }, [selected?.id, selected?.kind, selected?.status, isBackendApiEnabled]);
+  }, [completionsQuery.data, isBackendApiEnabled]);
 
-  if (isBackendApiEnabled && (courseQuery.isLoading || materialsQuery.isLoading)) return <AppShell><PageHeader eyebrow="Course workspace" title="Loading course"/><LoadingState label="Loading course content"/></AppShell>;
-  if (isBackendApiEnabled && (courseQuery.isError || materialsQuery.isError || !course)) return <AppShell><PageHeader eyebrow="Course workspace" title="This course could not be opened."/><ErrorState message="Course details or materials are unavailable." action={<Button onClick={() => { void courseQuery.refetch(); void materialsQuery.refetch(); }}>Retry</Button>}/></AppShell>;
+  useEffect(() => {
+    fetchContent(selected, isBackendApiEnabled, setTranscript, setSummary, setContentLoading, setContentError);
+  }, [selected?.id, selected?.kind, selected?.status, isBackendApiEnabled, setTranscript, setSummary, setContentLoading, setContentError]);
+
+  if (isBackendApiEnabled && (courseQuery.isLoading || materialsQuery.isLoading)) {
+    return (
+      <AppShell>
+        <PageHeader eyebrow="Course workspace" title="Loading course" />
+        <LoadingState label="Loading course content" />
+      </AppShell>
+    );
+  }
+  if (isBackendApiEnabled && (courseQuery.isError || materialsQuery.isError || !course)) {
+    return (
+      <AppShell>
+        <PageHeader eyebrow="Course workspace" title="This course could not be opened." />
+        <ErrorState
+          message="Course details or materials are unavailable."
+          action={
+            <Button
+              onClick={() => {
+                void courseQuery.refetch();
+                void materialsQuery.refetch();
+              }}
+            >
+              Retry
+            </Button>
+          }
+        />
+      </AppShell>
+    );
+  }
 
   const beginLearning = async () => {
-    if (!isBackendApiEnabled) return;
+    if (!isBackendApiEnabled) {return;}
     setBusy(true);
     setError('');
     try {
       const nextSession = await analyticsApi.startLearningSession(id);
       setSession(nextSession);
-      await analyticsApi.recordActivity({ session_id: nextSession.id, course_id: id, activity_type: 'lesson_started', material_id: selected?.id });
+      await analyticsApi.recordActivity({
+        session_id: nextSession.id,
+        course_id: id,
+        activity_type: 'lesson_started',
+        material_id: selected?.id,
+      });
     } catch {
       setError('Could not start or track this learning session. Retry before continuing.');
     } finally {
       setBusy(false);
     }
   };
+
   const finishLearning = async () => {
-    if (!session?.id) return;
+    if (!session?.id) {return;}
     setBusy(true);
     setError('');
     try {
-      await analyticsApi.recordActivity({ session_id: session.id, course_id: id, activity_type: 'lesson_completed', material_id: selected?.id });
+      await analyticsApi.recordActivity({
+        session_id: session.id,
+        course_id: id,
+        activity_type: 'lesson_completed',
+        material_id: selected?.id,
+      });
       await analyticsApi.finishLearningSession(session.id);
       setSession(null);
     } catch {
       setError('Could not finish this learning session. Your progress event may still be pending; retry to close it.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDownload = async (material) => {
+    setBusy(true);
+    setError('');
+    try {
+      const response = await materialsApi.download(material.id);
+      const blob = response.data || response;
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = material.title || material.file_name || 'material';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setCompletedMaterials(prev => new Set(prev).add(material.id));
+    } catch {
+      setError('Unable to download this material. Retry before continuing.');
     } finally {
       setBusy(false);
     }
@@ -140,15 +266,11 @@ export function CourseDetailPage({ player = false }) {
         difficulty: 'medium',
       });
       const generationId = result.id;
-      if (!generationId) throw new Error('No generation ID returned');
-      let generation = result;
-      for (let attempt = 0; generation.status && ['queued', 'processing'].includes(generation.status) && attempt < 30; attempt += 1) {
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        generation = await quizzesApi.generation(generationId);
-      }
-      if (generation.status === 'failed') throw new Error(generation.error_message || 'Quiz generation failed');
+      if (!generationId) {throw new Error('No generation ID returned');}
+      const generation = await pollGeneration(generationId, quizzesApi);
+      if (generation.status === 'failed') {throw new Error(generation.error_message || 'Quiz generation failed');}
       const draftQuestions = generation.questions || generation.result?.questions || [];
-      if (!draftQuestions.length) throw new Error('No questions generated');
+      if (!draftQuestions.length) {throw new Error('No questions generated');}
       const payload = {
         course_id: id,
         title: `Practice: ${selected.title}`,
@@ -174,8 +296,8 @@ export function CourseDetailPage({ player = false }) {
   };
 
   const renderMaterialViewer = () => {
-    if (!selected) return <p className="state-panel">Select a material to begin studying.</p>;
-    if (contentLoading) return <LoadingState label="Loading material content…" />;
+    if (!selected) {return <p className="state-panel">Select a material to begin studying.</p>;}
+    if (contentLoading) {return <LoadingState label="Loading material content…" />;}
     const src = materialUrl(selected);
     if (selected.kind === 'audio') {
       return (
@@ -194,6 +316,21 @@ export function CourseDetailPage({ player = false }) {
               <span className="eyebrow"><BookOpen size={14} /> AI Summary</span>
               <p>{summary}</p>
             </div>
+          )}
+        </div>
+      );
+    }
+    if (selected.kind === 'video') {
+      return (
+        <div className="material-study">
+          <div className="study-header">
+            <span className="eyebrow"><Play size={14} /> Video lecture</span>
+            <h3>{selected.title || selected.file_name}</h3>
+          </div>
+          {src ? (
+            <VideoPlayer src={src} title={selected.title || ''} onTimeUpdate={() => {}} />
+          ) : (
+            <p className="state-panel">Video file is not available for this material yet.</p>
           )}
         </div>
       );
@@ -221,16 +358,40 @@ export function CourseDetailPage({ player = false }) {
 
   return (
     <AppShell>
-      <PageHeader eyebrow="Course workspace" title={course.title || 'Course'} description={course.description || 'Build knowledge through course materials and practice.'} action={<Link className="button" to={player ? `/student/courses/${id}` : `/student/courses/${id}/player`}>{player ? <><ArrowLeft size={15} /> Course overview</> : <><Play size={15} /> Continue lesson</>}</Link>} />
+      <LessonNavigator course={course} selectedMaterial={selected?.id} onMaterialSelect={() => {}} />
+      <PageHeader
+        eyebrow="Course workspace"
+        title={course.title || 'Course'}
+        description={course.description || 'Build knowledge through course materials and practice.'}
+        action={
+          <Link className="button" to={player ? `/student/courses/${id}` : `/student/courses/${id}/player`}>
+            {player ? <><ArrowLeft size={15} /> Course overview</> : <><Play size={15} /> Continue lesson</>}
+          </Link>
+        }
+      />
       <section className="chart-card detail-table">
         <span className="eyebrow">{course.level || 'Course'} · {materials.length} materials</span>
         <h2>{player ? selected?.title || 'Your next lesson' : 'A guided path through the fundamentals'}</h2>
         <p className="quiz-helper">{player ? 'Follow the lesson, pause when you need to, and check your understanding before moving on.' : 'Review course materials, then continue with the next available lesson.'}</p>
-        <ProgressBar value={progress} />
+        <ProgressBar value={progress} /><span>{progress}%</span>
         {error && <p className="upload-error" role="alert">{error}</p>}
         {player ? (
           <>
-            <div className="transcript">{materials.map(material => <button type="button" key={material.id} className="course-material-next" onClick={() => setSelectedMaterial(material.id)}><span><strong>{material.title || material.file_name}</strong><small>{material.kind} · {material.status}</small></span>{selected?.id === material.id ? <CirclePlay size={16} /> : <ArrowRight size={16} />}</button>)}</div>
+            <div className="transcript">{materials.map(material => {
+              const isCompleted = completedMaterials.has(material.id);
+              return (
+                <div key={material.id} className={`course-material-item ${selected?.id === material.id ? 'selected' : ''} ${isCompleted ? 'completed' : ''}`}>
+                  <button type="button" className="material-select" onClick={() => setSelectedMaterial(material.id)}>
+                    <span><strong>{material.title || material.file_name}</strong><small>{material.kind} · {material.status}</small></span>
+                    {selected?.id === material.id ? <CirclePlay size={16} /> : <ArrowRight size={16} />}
+                    {isCompleted ? <Check size={14} className="completion-check" /> : null}
+                  </button>
+                  <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); void handleDownload(material); }} disabled={busy}>
+                    {busy ? '…' : 'Download'}
+                  </Button>
+                </div>
+              );
+            })}</div>
             {contentError && <p className="upload-error" role="alert">{contentError}</p>}
             {renderMaterialViewer()}
             {isBackendApiEnabled && (
@@ -240,32 +401,48 @@ export function CourseDetailPage({ player = false }) {
                 ) : (
                   <Button onClick={() => void beginLearning()} disabled={busy || !selected}><CirclePlay size={15} />{busy ? 'Starting…' : 'Start learning session'}</Button>
                 )}
-                {session && <span role="status">Learning session active · progress events are being tracked</span>}
+                {session && <output>Learning session active · progress events are being tracked</output>}
               </div>
             )}
           </>
         ) : (
           <>
-            <div className="course-materials-list">
-              {materials.map(material => (
-                <button type="button" key={material.id} className={`course-material-item ${selected?.id === material.id ? 'selected' : ''}`} onClick={() => setSelectedMaterial(material.id)}>
-                  <span className="material-icon">{material.kind === 'audio' ? '🎧' : '📄'}</span>
-                  <span className="material-info">
-                    <strong>{material.title || material.file_name}</strong>
-                    <small>{material.kind} · {material.status}</small>
-                  </span>
-                </button>
-              ))}
-            </div>
+            <div className="course-materials-list">{materials.map(material => {
+              const isCompleted = completedMaterials.has(material.id);
+              return (
+                <div key={material.id} className={`course-material-item ${selected?.id === material.id ? 'selected' : ''} ${isCompleted ? 'completed' : ''}`}>
+                  <button type="button" className="material-select" onClick={() => setSelectedMaterial(material.id)}>
+                    <span className="material-icon">{material.kind === 'audio' ? '🎧' : '📄'}</span>
+                    <span className="material-info">
+                      <strong>{material.title || material.file_name}</strong>
+                      <small>{material.kind} · {material.status}</small>
+                    </span>
+                    {isCompleted ? <Check size={14} className="completion-check" /> : null}
+                  </button>
+                  <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); void handleDownload(material); }} disabled={busy}>
+                    {busy ? '…' : 'Download'}
+                  </Button>
+                </div>
+              );
+            })}</div>
             {isBackendApiEnabled && (
-              <div className="course-student-actions">
-                <Button onClick={() => void beginLearning()} disabled={busy || !selected}><CirclePlay size={15} />{busy ? 'Starting…' : 'Start learning session'}</Button>
-                <Button variant="secondary" onClick={() => void generatePracticeQuiz()} disabled={generatingQuiz || !selected || !isBackendApiEnabled}>
-                  <Sparkles size={15} />{generatingQuiz ? <Loader2 size={14} className="spin" /> : 'Generate Practice Quiz'}
+              <>
+                <h3 className="chapter-quiz-header">Quiz de fin de chapitre</h3>
+                <p className="quiz-gating-hint">Téléchargez tous les supports du chapitre pour débloquer le quiz.</p>
+                <Button variant="secondary" disabled={completedMaterials.size < materials.length} onClick={() => navigate(`/student/quizzes/${id}`)}>
+                  {completedMaterials.size >= materials.length ? 'Ouvrir le quiz de chapitre' : `Quiz verrouillé (${completedMaterials.size}/${materials.length} supports terminés)`}
                 </Button>
-                {quizGenerationError && <p className="quiz-gen-error" role="alert">{quizGenerationError}</p>}
-                {quizGenerationSuccess && <p className="quiz-gen-success" role="status"><HelpCircle size={14} /> Practice quiz created! Check the Quizzes page.</p>}
-              </div>
+                {completedMaterials.size < materials.length && (
+                  <p className="quiz-lock-msg">Il vous reste {materials.length - completedMaterials.size} support(s) &agrave; consulter avant d&apos;acc&egrave;der au quiz.</p>
+                )}
+                <div className="course-student-actions">
+                  <Button onClick={() => void beginLearning()} disabled={busy || !selected}><CirclePlay size={15} />{busy ? 'Starting…' : 'Start learning session'}</Button>
+                  <Button variant="secondary" onClick={() => void generatePracticeQuiz()} disabled={generatingQuiz || !selected || !isBackendApiEnabled}><Sparkles size={15} />{generatingQuiz ? <Loader2 size={14} className="spin" /> : 'Generate Practice Quiz'}</Button>
+                  {quizGenerationError && <p className="quiz-gen-error" role="alert">{quizGenerationError}</p>}
+                  {quizGenerationSuccess && <p className="quiz-gen-success"><HelpCircle size={14} /> Practice quiz created! Check the Quizzes page.</p>}
+                  {totalActive > 0 && <span className="total-active">{totalActive} student{totalActive > 1 ? 's' : ''} online</span>}
+                </div>
+              </>
             )}
           </>
         )}
@@ -291,3 +468,7 @@ export function CourseDetailPage({ player = false }) {
     </AppShell>
   );
 }
+
+CourseDetailPage.propTypes = {
+  player: PropTypes.bool,
+};

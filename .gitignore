@@ -16,6 +16,8 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 media/
+**/private/exports/
+**/private/
 
 # IDE
 .vscode/
@@ -40,3 +42,4 @@ coverage/
 # Misc
 *.pid
 *.lock
+.fake

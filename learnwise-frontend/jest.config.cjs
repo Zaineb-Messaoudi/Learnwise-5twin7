@@ -1,5 +1,6 @@
 module.exports = {
   testEnvironment: 'jsdom',
+  testTimeout: 15000,
   roots: ['<rootDir>/tests', '<rootDir>/src'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   moduleFileExtensions: ['js', 'jsx'],

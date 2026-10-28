@@ -148,8 +148,8 @@ an evaluation with `is_correct` and learner-facing `feedback`.
 | `GET` | `/analytics/learning-paths/` | List paths for current user |
 | `GET` | `/analytics/learning-paths/{path_id}/` | Path nodes, relationships, current/next step |
 | `GET`, `POST` | `/analytics/learning-sessions/?from=&to=` | Query sessions by date range; start with `{course_id}` |
-| `PATCH` | `/analytics/learning-sessions/{session_id}/` | End a session with `{ended_at}` |
-| `GET`, `POST` | `/analytics/learning-activities/?session=` | Read activity timeline or record `{session_id, course_id, activity_type, material_id?, metadata?}` |
+| `POST` | `/analytics/learning-sessions/{session_id}/end/` | End a session server-side |
+| `GET`, `POST` | `/analytics/learning-activities/?session=` | Read activity timeline or record `{session_id, activity_type, material_id?}`; material IDs are validated against the session course |
 | `GET` | `/analytics/progress/?course=` | Progress, completion, topics for optional course |
 | `GET` | `/analytics/performance/?range=7d|30d|90d` | Performance trends and topic-level signals |
 | `GET` | `/analytics/achievements/` | Earned/in-progress achievements |
@@ -160,6 +160,12 @@ an evaluation with `is_correct` and learner-facing `feedback`.
 Analytics responses include a `data_source` (`live` or `demo`) and `range` when
 applicable. Empty results are valid and should return empty arrays and zero
 counts, not fabricated activity.
+
+`POST /content/materials/{material_id}/complete/` records an idempotent
+student completion. Analytics progress and enrollment status are computed
+from these server-validated completions; client activity reference IDs cannot
+increase progress. Optional processing and summary regeneration endpoints
+return `501 Not Implemented` when no processing worker is installed.
 
 `GET /content/courses/?available=true` lists published courses available for
 student enrollment; the unfiltered list is scoped to the current teacher's

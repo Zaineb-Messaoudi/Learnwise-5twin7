@@ -22,16 +22,16 @@ export function PublicNav() {
 export function PublicSectionPage({ title, description, kind = 'overview', children }) {
   const content = {
     about: [
-      [<Sparkles />, 'A calmer relationship with AI', 'The companion explains its thinking, invites questions, and keeps the learner in control.'],
-      [<BookOpen />, 'Built around your material', 'Your notes, lectures, and sources become the context for useful study instead of another content dump.'],
-      [<Target />, 'Progress with a point', 'Learnwise turns activity into a clear next step, so progress feels like direction rather than a score.'],
+      [<Sparkles key="about-1" />, 'A calmer relationship with AI', 'The companion explains its thinking, invites questions, and keeps the learner in control.'],
+      [<BookOpen key="about-2" />, 'Built around your material', 'Your notes, lectures, and sources become the context for useful study instead of another content dump.'],
+      [<Target key="about-3" />, 'Progress with a point', 'Learnwise turns activity into a clear next step, so progress feels like direction rather than a score.'],
     ],
     features: [
-      [<BookOpen />, 'Notebook workspace', 'Gather PDFs, notes, audio, and lecture fragments into source-grounded learning spaces.', '/student/notebooks'],
-      [<Sparkles />, 'Learning companion', 'Ask for explanations, analogies, connections, and follow-up questions without losing the thread.', '/student/assistant'],
-      [<Target />, 'Active practice', 'Create quizzes and exercises from your own context, then learn from the feedback.', '/student/exercises'],
-      [<MessageCircle />, 'Voice learning', 'Ask questions and listen to explanations when typing or looking at a screen is not the right mode.', '/student/voice-question'],
-      [<Compass />, 'Progress signals', 'See concepts, momentum, and useful next actions in one connected view.', '/student/progress'],
+      [<BookOpen key="features-1" />, 'Notebook workspace', 'Gather PDFs, notes, audio, and lecture fragments into source-grounded learning spaces.', '/student/notebooks'],
+      [<Sparkles key="features-2" />, 'Learning companion', 'Ask for explanations, analogies, connections, and follow-up questions without losing the thread.', '/student/assistant'],
+      [<Target key="features-3" />, 'Active practice', 'Create quizzes and exercises from your own context, then learn from the feedback.', '/student/exercises'],
+      [<MessageCircle key="features-4" />, 'Voice learning', 'Ask questions and listen to explanations when typing or looking at a screen is not the right mode.', '/student/voice-question'],
+      [<Compass key="features-5" />, 'Progress signals', 'See concepts, momentum, and useful next actions in one connected view.', '/student/progress'],
     ],
     workflow: [
       ['01', 'Bring in the messy material', 'Upload a source, open a notebook, or start with the question you cannot quite phrase yet.'],

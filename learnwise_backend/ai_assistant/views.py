@@ -51,6 +51,11 @@ def ai_error_response(exc):
         status=status.HTTP_502_BAD_GATEWAY,
     )
 
+from .models import AssistantSession, VoiceQuestion, AssistantMessage, Explanation, Illustration
+from .serializers import (
+    AssistantSessionSerializer, VoiceQuestionSerializer,
+    AssistantMessageSerializer, ExplanationSerializer, IllustrationSerializer,
+)
 
 @api_view(['GET'])
 def api_root(request):
@@ -64,6 +69,7 @@ class SessionListCreateView(generics.ListCreateAPIView):
     serializer_class = AssistantSessionSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = StandardPagination
+
 
     def get_queryset(self):
         return AssistantSession.objects.filter(user=self.request.user)
@@ -276,3 +282,4 @@ class MessageIllustrationView(APIView):
             else status.HTTP_502_BAD_GATEWAY
         )
         return Response(body, status=code)
+ 

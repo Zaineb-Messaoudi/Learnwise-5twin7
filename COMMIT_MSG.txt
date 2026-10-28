@@ -1,0 +1,22 @@
+feat(content): expand course management capabilities and student UI
+
+Implement advanced course lifecycle management including versioning, 
+prerequisites, and moderation, while enhancing the student learning 
+experience with improved course discovery and playback components.
+
+- Add API endpoints for course archiving, versioning, and prerequisites
+- Implement chapter management and thumbnail generation APIs
+- Refactor CourseCard with new CSS-based styling and status badges
+- Add CourseFilters, LessonNavigator, and VideoPlayer to student features
+- Introduce new routes for teacher course management and admin moderation
+- Fix CheckConstraint syntax in CoursePrerequisite model
+- Add presence tracking and improved progress calculation logic
+- Add Badge model with image upload for course completion
+- Add send_course_reminders management command for student notifications
+- Fix file-upload route mismatch in materials API
+- Fix WebSocket presence authentication via JWT query parameter
+- Fix duplicate route in AppRoutes.jsx
+- Recreate Python venv with Python 3.14 and Django 5.2.18
+- Move SECRET_KEY to environment variable
+- Delete session temp files (output.txt, result.txt, test_output.txt,
+  test_output2.txt, test_report.txt)

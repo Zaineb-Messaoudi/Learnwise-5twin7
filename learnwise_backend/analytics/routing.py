@@ -1,7 +1,8 @@
 from django.urls import path
 
-from . import consumers
+from .consumers import AnalyticsConsumer, LegacyProgressConsumer
 
-urlpatterns = [
-    path('ws/progress/<str:user_id>/', consumers.ProgressConsumer.as_asgi()),
+websocket_urlpatterns = [
+    path("ws/analytics/", AnalyticsConsumer.as_asgi()),
+    path("ws/progress/<str:user_id>/", LegacyProgressConsumer.as_asgi()),
 ]

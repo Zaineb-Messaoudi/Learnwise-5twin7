@@ -1,0 +1,294 @@
+================================================================================
+  LEARNWISE - BACKEND CONTENT APP IMPLEMENTATION REPORT
+================================================================================
+
+Date: 2026-10-27
+Project: Learnwise (Django 5.2 + DRF + MySQL)
+App: content (learnwise_backend/content/)
+Status: COMPLETE - All 10 advanced functionalities implemented
+
+================================================================================
+1. ARCHITECTURE OVERVIEW
+================================================================================
+
+The backend `content` app is a complete Content Management System for an
+educational platform (Blackboard/Classroom style). It provides full CRUD for
+courses, chapters, and learning materials, plus 10 advanced functionalities.
+
+Models (10 entities):
+  - Course              : Course metadata (title, description, level, language,
+                          status, content_type, markdown/latex content, owner,
+                          scheduled_publish_at, estimated_reading_minutes, slug)
+  - Chapter             : Course chapters with ordering
+  - CourseMaterial      : Learning materials attached to course/chapter
+  - AudioMaterial       : Audio-specific metadata (duration, language)
+  - DocumentMaterial    : Document-specific metadata (page_count, mime_type)
+  - VideoMaterial       : Video-specific metadata (duration, resolution, language)
+  - Transcription       : Audio/PDF transcription text
+  - Summary             : Content summary
+  - CoursePresence      : Real-time WebSocket presence tracking
+  - CourseVersion       : Immutable snapshots for versioning/rollback
+  - CoursePrerequisite  : Prerequisite relationships with cycle detection
+
+================================================================================
+2. ENDPOINTS SUMMARY (/api/v1/content/)
+================================================================================
+
+CRUD ENDPOINTS:
+  GET/POST    /courses/                          List/create courses
+  GET/PUT/DELETE /courses/{id}/                  Course detail/modify/delete
+  GET/POST    /chapters/                         Chapter CRUD (filter: course)
+  GET/PUT/DELETE /chapters/{id}/                 Chapter detail
+  GET/POST    /materials/                        Material CRUD (filters: course, chapter, material_type)
+  GET/PUT/DELETE /materials/{id}/                Material detail
+  GET         /materials/{id}/download/          Download material file
+  GET/POST    /audio/                            AudioMaterial CRUD (filter: material)
+  GET/PUT/DELETE /audio/{id}/                    Audio detail
+  GET/POST    /documents/                        DocumentMaterial CRUD (filter: material)
+  GET/PUT/DELETE /documents/{id}/                Document detail
+  GET/POST    /videos/                           VideoMaterial CRUD (filter: material)
+  GET/PUT/DELETE /videos/{id}/                   Video detail
+  GET/POST    /transcriptions/                   Transcription CRUD (filter: material)
+  GET/PUT/DELETE /transcriptions/{id}/           Transcription detail
+  GET/POST    /summaries/                        Summary CRUD (filter: material)
+  GET/PUT/DELETE /summaries/{id}/                Summary detail
+
+ADVANCED ENDPOINTS (non-CRUD):
+  POST   /courses/{id}/publish/                  Publish a draft course
+  POST   /courses/{id}/archive/                  Archive a course
+  GET    /courses/stats/                         Course statistics (draft/published/archived counts)
+  POST   /courses/{id}/create_version/           Create version snapshot
+  GET    /courses/{id}/versions/                 List version snapshots
+  POST   /courses/{id}/rollback/                 Rollback to a previous version
+  POST   /courses/{id}/duplicate/                Duplicate course (clone chapters + materials)
+  GET    /courses/{id}/export/                   Export course as ZIP (metadata + files)
+  POST   /courses/{id}/submit_for_review/        Submit draft for admin review
+  POST   /courses/{id}/approve/                  Approve pending_review course (admin)
+  POST   /courses/{id}/reject/                   Reject pending_review course to draft (admin)
+  GET/POST /courses/{id}/prerequisites/          List/add prerequisites
+  DELETE /courses/{id}/prerequisites/{prereq_id}/ Remove a prerequisite
+  GET    /courses/{id}/presence/                 REST presence list
+  POST   /materials/{id}/generate_thumbnail/     Generate thumbnail preview
+
+WEBSOCKET ENDPOINT:
+  WS /ws/content/courses/{course_id}/presence/   Real-time presence (join/leave/heartbeat)
+
+================================================================================
+3. PERMISSIONS MODEL
+================================================================================
+
+- Professor/Admin: Full CRUD on their own courses
+- Student: Read-only access to published courses and their materials
+- Admin: Can approve/reject pending_review courses
+- Course owner required for: publish, archive, duplicate, export, create_version,
+  rollback, submit_for_review, prerequisites add/remove
+- Unauthorized access returns 403 Forbidden
+
+================================================================================
+4. 10 ADVANCED FUNCTIONALITIES IMPLEMENTED
+================================================================================
+
+#1 REAL-TIME PRESENCE (WebSocket)
+  - Model: CoursePresence (course, user, channel_name, joined_at, last_seen)
+  - Consumer: PresenceConsumer (channels.generic.websocket.AsyncWebsocketConsumer)
+  - URL: /ws/content/courses/{course_id}/presence/
+  - Messages: join, leave, heartbeat
+  - REST endpoint: GET /courses/{id}/presence/
+  - Tests: 4
+
+#2 THUMBNAIL GENERATION (Pillow)
+  - Field: CourseMaterial.thumbnail (ImageField)
+  - Utility: content/thumbnail_utils.py (Pillow-based)
+  - Supports: PDF first page (PyMuPDF), video frame (OpenCV), audio waveform,
+              image resize, type placeholders (document/audio/video/code/etc.)
+  - Endpoint: POST /materials/{id}/generate_thumbnail/
+  - Tests: 3
+
+#3 COURSE VERSIONING
+  - Model: CourseVersion (course, version_number, snapshot JSON, change_description,
+            created_by, created_at)
+  - Class methods: create_snapshot(), apply_to()
+  - Endpoints: POST create_version, GET versions, POST rollback
+  - Auto-snapshot before rollback
+  - Tests: 5
+
+#4 SCHEDULED PUBLISHING
+  - Field: Course.scheduled_publish_at (DateTimeField)
+  - Auto-publish in Course.save() when scheduled time is in the past
+  - Management command: python manage.py auto_publish
+  - Tests: 3
+
+#5 COURSE PREREQUISITES
+  - Model: CoursePrerequisite (course, prerequisite_course, created_at)
+  - Circular dependency detection (_would_create_cycle)
+  - Self-reference prevention (CheckConstraint)
+  - Endpoints: GET/POST prerequisites, DELETE remove_prerequisite
+  - Tests: 5
+
+#6 ESTIMATED READING TIME
+  - Field: Course.estimated_reading_minutes (IntegerField)
+  - Auto-calculated in Course.save() from description + markdown word count
+  - ~200 words/minute, +1 min per audio/video material
+  - Tests: 2
+
+#7 DUPLICATE COURSE
+  - Endpoint: POST /courses/{id}/duplicate/
+  - Clones course + all chapters + all materials
+  - Copies type-specific details (AudioMaterial, DocumentMaterial, VideoMaterial)
+  - New course status: draft
+  - Tests: 3
+
+#8 EXPORT COURSE (ZIP)
+  - Endpoint: GET /courses/{id}/export/
+  - ZIP contains: course_metadata.json, chapters.json, materials.json, files/
+  - FileResponse with attachment disposition
+  - Tests: 3
+
+#9 SLUG SEO-FRIENDLY
+  - Field: Course.slug (SlugField, unique)
+  - Auto-generated from title via django.utils.text.slugify
+  - Uniqueness ensured with counter suffix (-1, -2, ...)
+  - Tests: 3
+
+#10 PENDING REVIEW MODERATION
+  - Status: pending_review added to STATUS_CHOICES
+  - Endpoints: POST submit_for_review (professor), POST approve (admin), POST reject (admin)
+  - Workflow: draft -> pending_review -> published/draft
+  - Tests: 5
+
+================================================================================
+5. BUGS FIXED (from code review)
+================================================================================
+
+#1 Critical: DEFAULT_FILE_STORAGE silently ignored on Django 5.2
+  Fixed: Replaced DEFAULT_FILE_STORAGE with STORAGES = {"default": {...},
+  "staticfiles": {...}} dict (Django 5.2 compatible)
+  File: learnwise_backend/settings.py
+
+#2 Critical: Missing dependencies in requirements.txt
+  Fixed: Added django-storages[boto3], numpy, mysqlclient with version pins
+  File: learnwise_backend/requirements.txt
+
+#3 Critical: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY both read same env var
+  Fixed: AWS_ACCESS_KEY_ID -> SUPABASE_PUBLISHED_KEY,
+          AWS_SECRET_ACCESS_KEY -> SUPABASE_SECRET_KEY
+  File: learnwise_backend/settings.py
+
+#4 High: EngagementTracker score math operator precedence bug
+  Fixed: Math.round(((present?0.6:0)+(attentive?0.4:0))*100)
+  File: learnwise-frontend/src/components/ui/EngagementTracker.jsx
+
+#5 High: Camera auto-starts without consent
+  Fixed: Default enabled=false, consent card with "Enable tracking" button
+  File: learnwise-frontend/src/components/ui/EngagementTracker.jsx
+
+#6 High: Stale closure in "no face detected" branch
+  Fixed: Uses newEngagement object consistently instead of stale outer state
+  File: learnwise-frontend/src/components/ui/EngagementTracker.jsx
+
+#7 Medium: FaceVerifyView filtered query excluded admin face profiles
+  Fixed: Query now matches ALL verified roles; face_login_allowed() returns 403
+  File: learnwise_backend/accounts/views.py
+
+#8 Medium: Missing venv documentation
+  Fixed: Added backend setup instructions with venv activation
+  File: README.md
+
+================================================================================
+6. CONFIGURATION
+================================================================================
+
+settings.py changes:
+  - DATABASES: MySQL default (DB_CONNECTION=mysql), SQLite fallback
+  - STORAGES: Supabase S3-compatible storage when USE_S3=True
+  - Supabase env vars: SUPABASE_SECRET_KEY, SUPABASE_PUBLISHED_KEY,
+    SUPABASE_PROJECT_URL, SUPABASE_BUCKET, SUPABASE_REGION
+  - MAX_UPLOAD_SIZE: 100 MB
+  - ALLOWED_MATERIAL_EXTENSIONS: pdf, docx, pptx, mp3, mp4, zip, jpg, png, etc.
+
+requirements.txt:
+  - Django>=5.2,<6.0, djangorestframework, simplejwt, cors-headers, django-filter,
+    channels, channels-redis, python-dotenv, requests, pyotp, qrcode[pil],
+    django-storages[boto3], numpy>=1.24, mysqlclient>=2.2, Pillow>=10.0,
+    pytest, pytest-django, pytest-cov, black, flake8, isort
+
+.env required variables:
+  - DB_CONNECTION=mysql, DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD
+  - USE_S3=True (for Supabase Storage)
+  - SUPABASE_SECRET_KEY, SUPABASE_PUBLISHED_KEY, SUPABASE_PROJECT_URL,
+    SUPABASE_BUCKET, SUPABASE_REGION
+  - SECRET_KEY, DEBUG, ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS, FRONTEND_URL
+  - Email SMTP settings, OAuth credentials (Google, Facebook)
+
+================================================================================
+7. TEST RESULTS
+================================================================================
+
+Total: 68 tests, all PASSING
+
+  content/tests.py:
+  - Course CRUD: 9 tests
+  - CourseMaterial CRUD: 4 tests
+  - AudioMaterial/DocumentMaterial/VideoMaterial/Transcription/Summary CRUD: 5 tests
+  - Chapter CRUD: 5 tests
+  - Material <-> Chapter association: 2 tests
+  - Presence (REST + model): 4 tests
+  - Thumbnail generation: 3 tests
+  - Course versioning: 5 tests
+  - Scheduled publishing: 3 tests
+  - Course prerequisites: 5 tests
+  - Estimated reading time: 2 tests
+  - Duplicate course: 3 tests
+  - Export course: 3 tests
+  - Slug generation: 3 tests
+  - Pending review moderation: 5 tests
+
+  accounts/tests_auth_flow.py (face tests):
+  - test_face_login_is_refused_for_admin_accounts: PASS (was 401, now 403)
+  - All other face tests: PASS
+
+  python manage.py check: 0 issues
+
+================================================================================
+8. FILES MODIFIED / CREATED
+================================================================================
+
+Backend (learnwise_backend/):
+  Modified:
+    - learnwise_backend/settings.py          (STORAGES dict, MySQL, Supabase config)
+    - learnwise_backend/requirements.txt     (added django-storages, numpy, mysqlclient)
+    - learnwise_backend/content/models.py    (10 models + all fields)
+    - learnwise_backend/content/serializers.py (11 serializers)
+    - learnwise_backend/content/views.py     (10 ViewSets + 12 advanced actions)
+    - learnwise_backend/content/urls.py      (7 router registrations)
+    - learnwise_backend/content/admin.py     (10 model admins)
+    - learnwise_backend/content/routing.py   (WebSocket routing)
+    - learnwise_backend/content/asgi.py      (ProtocolTypeRouter with WebSocket)
+    - learnwise_backend/accounts/views.py    (FaceVerifyView query fix)
+    - README.md                              (venv activation docs)
+
+  Created:
+    - learnwise_backend/content/consumers.py  (PresenceConsumer)
+    - learnwise_backend/content/thumbnail_utils.py (Pillow thumbnail generator)
+    - learnwise_backend/content/management/commands/auto_publish.py
+    - learnwise_backend/content/migrations/0001_initial.py through 0011_course_slug.py
+
+Frontend (learnwise_frontend/):
+  Modified:
+    - src/components/ui/EngagementTracker.jsx  (score math, consent, stale closure)
+
+================================================================================
+9. NEXT STEPS / RECOMMENDATIONS
+================================================================================
+
+- Configure Supabase bucket "Learnwise" in Storage dashboard
+- Run python manage.py auto_publish via cron for scheduled publishing
+- Configure Redis (REDIS_URL) for production TOTP replay protection
+- Install PyMuPDF (fitz) and opencv-python for PDF/video thumbnail generation
+- Add ESLint configuration to frontend
+- Clean up test artifacts (media/avatars/, private/exports/)
+- Implement frontend React components to consume all new endpoints
+
+================================================================================
+  END OF REPORT
+================================================================================

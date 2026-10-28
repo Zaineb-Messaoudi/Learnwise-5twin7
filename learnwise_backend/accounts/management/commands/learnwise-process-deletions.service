@@ -1,0 +1,21 @@
+# Learnwise Account Deletion Processor - systemd timer
+
+# To install on production server:
+# 1. Copy this file to /etc/systemd/system/learnwise-process-deletions.service
+# 2. Copy learnwise-process-deletions.timer to /etc/systemd/system/learnwise-process-deletions.timer
+# 3. Run: systemctl daemon-reload
+# 4. Run: systemctl enable --now learnwise-process-deletions.timer
+
+[Unit]
+Description=Process expired Learnwise account deletions
+After=network.target
+
+[Service]
+Type=oneshot
+User=www-data
+WorkingDirectory=/var/www/learnwise/learnwise_backend
+Environment=DJANGO_SETTINGS_MODULE=learnwise_backend.settings
+ExecStart=/var/www/learnwise/venv/bin/python manage.py process_account_deletions
+
+[Install]
+WantedBy=multi-user.target
