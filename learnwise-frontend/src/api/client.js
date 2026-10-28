@@ -44,5 +44,8 @@ export async function apiRequest(path, options = {}) {
 }
 export function createWebSocket(path) {
     const base = (import.meta.env.VITE_WS_URL || window.location.origin.replace(/^http/, 'ws')).replace(/\/$/, '');
-    return new WebSocket(`${base}${path.startsWith('/') ? path : `/${path}`}`);
+    const token = window.localStorage.getItem('learnwise:access-token');
+    const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
+    const sep = url.includes('?') ? '&' : '?';
+    return new WebSocket(token ? `${url}${sep}token=${token}` : url);
 }

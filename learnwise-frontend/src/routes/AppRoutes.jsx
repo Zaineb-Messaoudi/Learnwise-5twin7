@@ -45,6 +45,7 @@ const ExerciseLibraryPage = lazy(() => import('../features/student/pages/Exercis
 
 const ContactPage = lazy(() => import('../features/public/pages/ContactPage').then(module => ({ default: module.ContactPage })));
 const FaceAuthPage = lazy(() => import('../features/public/pages/FaceAuthPage').then(module => ({ default: module.FaceAuthPage })));
+const EmailVerificationPage = lazy(() => import('../features/auth/pages/EmailVerificationPage').then(module => ({ default: module.EmailVerificationPage })));
 const FaqPage = lazy(() => import('../features/public/pages/FaqPage').then(module => ({ default: module.FaqPage })));
 const ForgotPasswordPage = lazy(() => import('../features/public/pages/ForgotPasswordPage').then(module => ({ default: module.ForgotPasswordPage })));
 const UploadMaterialsPage = lazy(() => import('../features/public/pages/UploadMaterialsPage').then(module => ({ default: module.UploadMaterialsPage })));
@@ -106,10 +107,11 @@ function WorkspaceRouter({ role }) {
   if (pathname === '/teacher/students' || /^\/teacher\/students\/[^/]+$/.test(pathname)) return <TeacherStudentsPage />;
   if (pathname === '/teacher/quizzes' || pathname === '/teacher/questions' || pathname === '/teacher/exercises' || pathname === '/teacher/ai-generation') return <AssessmentStudioPage />;
   if (pathname === '/teacher/analytics') return <TeacherAnalyticsPage />;
-  if (pathname === '/teacher/ai-generation') return <TeacherAiGenerationPage />;
+  if (pathname === '/teacher/profile') return <EducatorProfilePage />;
+  if (pathname === '/teacher/security') return <EducatorSecuritySettingsPage />;
   if (pathname === '/teacher/settings' || pathname === '/teacher/profile') return <SettingsPage role="teacher" />;
   if (pathname === '/admin/dashboard') return <AdminDashboard />;
-  if (pathname === '/admin/users' || pathname === '/admin/students' || pathname === '/admin/teachers') return <AdminUsersPage />;
+  if (pathname === '/admin/users' || pathname === '/admin/students' || pathname === '/admin/teachers') return <AdminUserManagement />;
   if (pathname === '/admin/courses' || pathname === '/admin/quizzes' || pathname === '/admin/exercises') return <AdminContentPage />;
   if (pathname === '/admin/analytics' || pathname === '/admin/ai-usage') return <AdminAnalyticsPage />;
   if (pathname === '/admin/settings' || pathname === '/admin/profile') return <SettingsPage role="admin" />;

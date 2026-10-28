@@ -18,19 +18,23 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Load environment variables from .env file
-load_dotenv(BASE_DIR / '.env')
+load_dotenv(BASE_DIR / '.env', override=True)
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-9!@nl_9!^3mu4em%$)p=i0-q=@4-9(ho_s*h2$+i+mt)*@zqgg')
-
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_HOSTS') else ['localhost', '127.0.0.1']
+# SECURITY WARNING: keep the secret key used in production secret!
+_DEV_SECRET_KEY = 'django-insecure-9!@nl_9!^3mu4em%$)p=i0-q=@4-9(ho_s*h2$+i+mt)*@zqgg'
+SECRET_KEY = os.getenv('SECRET_KEY', _DEV_SECRET_KEY)
+if not DEBUG and SECRET_KEY == _DEV_SECRET_KEY:
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured('SECRET_KEY must be set in the environment when DEBUG is False.')
+
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_HOSTS') else ['localhost', '127.0.0.1', 'testserver']
 
 # CSRF trusted origins for OAuth callbacks
 CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:5173,http://localhost:8000').split(',')
@@ -46,7 +50,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'django_filters',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'channels',
     'accounts',
@@ -60,6 +66,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'learnwise_backend.middleware.CrossOriginResourcePolicyMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -92,12 +99,33 @@ WSGI_APPLICATION = 'learnwise_backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+DB_CONNECTION = os.getenv('DB_CONNECTION', 'sqlite')
+
+if DB_CONNECTION == 'mysql':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'db_backends.mysql_no_check',
+            'NAME': os.getenv('DB_DATABASE', 'Learnwise'),
+            'USER': os.getenv('DB_USERNAME', 'root'),
+            'PASSWORD': os.getenv('DB_PASSWORD', ''),
+            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'PORT': os.getenv('DB_PORT', '3306'),
+            'OPTIONS': {
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+                'charset': 'utf8mb4',
+            },
+            'CONN_MAX_AGE': 60,
+            'CONN_HEALTH_CHECKS': True,
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+            'CONN_MAX_AGE': 60,
+        }
+    }
 
 
 # Password validation
@@ -146,11 +174,36 @@ AUTH_USER_MODEL = 'accounts.User'
 # REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'accounts.authentication.SessionAwareJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
+        # Authenticated AND onboarded (role chosen + face enrolled). Endpoints that must work
+        # during onboarding (profile, role selection, face enrolment, logout...) declare
+        # IsAuthenticated explicitly; new module endpoints inherit the stricter default.
+        'accounts.permissions.IsOnboarded',
     ),
+    # ScopedRateThrottle enforces the per-view `throttle_scope` rates below.
+    # AnonRateThrottle is the fallback for AllowAny views that don't declare a scope.
+    'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.ScopedRateThrottle',
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        # Anonymous calls are counted per IP: a campus/NAT address is shared by many
+        # students, so keep this generous and rely on the per-scope limits below.
+        'anon': '5000/day',
+        'user': '5000/day',
+        'login': '10/minute',
+        'register': '5/minute',
+        'social': '20/minute',
+        'face_verify': '10/minute',
+        '2fa': '10/minute',
+        'verify_code': '5/minute',
+        'password_reset': '5/hour',
+        'resend_verification': '5/hour',
+        'token_refresh': '120/minute',
+    },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
 }
@@ -161,12 +214,56 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': False,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
 }
 
-# CORS
-CORS_ALLOW_ALL_ORIGINS = True
+# Longer refresh-token lifetime for sessions created with "Remember me"
+REMEMBER_ME_REFRESH_DAYS = int(os.getenv('REMEMBER_ME_REFRESH_DAYS', '30'))
+
+# Require two-factor authentication for administrators before the admin API unlocks.
+# Recommended: set REQUIRE_ADMIN_2FA=True in production (after each admin enrolled 2FA).
+REQUIRE_ADMIN_2FA = os.getenv('REQUIRE_ADMIN_2FA', 'False').lower() == 'true'
+
+# CORS - explicit allowlist (comma-separated list in the CORS_ALLOWED_ORIGINS env var)
+CORS_ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173').split(',') if o.strip()
+]
 CORS_ALLOW_CREDENTIALS = True
+
+# En développement, autoriser toutes les origines CORS (evite les problèmes de port
+# frontend variable, ex. Vite sur 5173 ou 5174). Nunca en production.
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+
+# Face login: maximum Euclidean distance for a match (lower = stricter)
+FACE_MATCH_THRESHOLD = float(os.getenv('FACE_MATCH_THRESHOLD', '0.5'))
+
+# Cache (used for TOTP replay protection, among other things).
+# LocMemCache is per-process and NOT shared across workers/restarts, which weakens
+# the TOTP replay guard under multi-worker deployment. Point REDIS_URL at a real
+# Redis instance in production (channels_redis is already a dependency).
+REDIS_URL = os.getenv('REDIS_URL')
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        }
+    }
+    if not DEBUG:
+        raise RuntimeError(
+            'REDIS_URL is not set: TOTP replay protection requires Redis in production. '
+            'Set REDIS_URL environment variable to a Redis instance. '
+            'LocMemCache is not shared across workers and weakens 2FA replay protection.'
+        )
 
 # Channels / WebSockets
 CHANNEL_LAYERS = {
@@ -190,6 +287,9 @@ EMAIL_USE_TLS = os.getenv('MAIL_SCHEME', 'tls').lower() == 'tls'
 EMAIL_HOST_USER = os.getenv('MAIL_USERNAME')
 EMAIL_HOST_PASSWORD = os.getenv('MAIL_PASSWORD')
 DEFAULT_FROM_EMAIL = os.getenv('MAIL_FROM_ADDRESS', 'Learnwise <noreply@learnwise.local>')
+# Without this, Django's SMTP backend has NO timeout and a stalled connection
+# (bad credentials, blocked port, slow network) hangs the request forever.
+EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '10'))
 
 # OAuth credentials
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
@@ -200,3 +300,23 @@ FACEBOOK_APP_ID = os.getenv('FACEBOOK_APP_ID')
 FACEBOOK_APP_SECRET = os.getenv('FACEBOOK_APP_SECRET')
 FACEBOOK_CALLBACK_URL = os.getenv('FACEBOOK_CALLBACK_URL', 'http://localhost:8000/auth/facebook/callback')
 FACEBOOK_GRAPH_VERSION = os.getenv('FACEBOOK_GRAPH_VERSION', 'v23.0')
+
+# Security hardening (only enforced when DEBUG is False)
+X_FRAME_OPTIONS = 'DENY'
+SECURE_CONTENT_TYPE_NOSNIFF = True
+if not DEBUG:
+    SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'True').lower() == 'true'
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    # Uncomment when running behind a TLS-terminating reverse proxy:
+    # SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Cross-Origin headers for media files (fixes COEP blocking images)
+# In development, allow same-origin embedding to serve generated images
+if DEBUG:
+    SECURE_CROSS_ORIGIN_OPENER_POLICY = 'unsafe-none'
+    SECURE_CROSS_ORIGIN_EMBEDDER_POLICY = 'unsafe-none'
+
