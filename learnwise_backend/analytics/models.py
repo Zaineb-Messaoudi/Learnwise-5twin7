@@ -119,3 +119,128 @@ class Achievement(UUIDModel):
         indexes = [models.Index(fields=("user", "earned_at"), name="an_achievement_user_date")]
     def __str__(self):
         return f"{self.title} - {self.user.email}"
+
+
+class Cohort(UUIDModel):
+    """A real class/group used as the comparison population."""
+    name = models.CharField(max_length=255)
+    subject = models.CharField(max_length=255, blank=True, default="")
+    course = models.ForeignKey("content.Course", null=True, blank=True, on_delete=models.SET_NULL,
+                               related_name="analytics_cohorts")
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ("name",)
+
+    def __str__(self):
+        return self.name
+
+
+class CohortMembership(UUIDModel):
+    cohort = models.ForeignKey(Cohort, on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="analytics_cohort_memberships")
+    joined_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("cohort", "user"), name="analytics_unique_cohort_member")]
+        indexes = [models.Index(fields=("cohort", "user"), name="an_cohort_member")]
+
+
+class Concept(UUIDModel):
+    """A curriculum notion/objective, explicitly attached to a course."""
+    course = models.ForeignKey("content.Course", on_delete=models.CASCADE, related_name="analytics_concepts")
+    code = models.CharField(max_length=80)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ("course_id", "code")
+        constraints = [models.UniqueConstraint(fields=("course", "code"), name="analytics_unique_course_concept")]
+
+    def __str__(self):
+        return f"{self.course}: {self.title}"
+
+
+class QuestionConcept(UUIDModel):
+    """Decoupled mapping to assessment.Question (whose PK is currently integer)."""
+    question_id = models.PositiveBigIntegerField()
+    concept = models.ForeignKey(Concept, on_delete=models.CASCADE, related_name="question_mappings")
+    weight = models.FloatField(default=1, validators=(MinValueValidator(0.01),))
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("question_id", "concept"), name="analytics_unique_question_concept")]
+        indexes = [models.Index(fields=("question_id",), name="an_question_id")]
+
+
+class WeeklyLearningSnapshot(UUIDModel):
+    """Immutable weekly feature vector derived only from recorded activity."""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="learning_radar_snapshots")
+    course = models.ForeignKey("content.Course", on_delete=models.CASCADE,
+                               related_name="learning_radar_snapshots")
+    week_start = models.DateField()
+    learning_seconds = models.PositiveIntegerField(default=0)
+    session_count = models.PositiveIntegerField(default=0)
+    completed_session_count = models.PositiveIntegerField(default=0)
+    average_score = models.FloatField(null=True, blank=True)
+    assessment_count = models.PositiveIntegerField(default=0)
+    completion_percentage = models.FloatField(default=0)
+    concept_error_rate = models.FloatField(null=True, blank=True)
+    evidence = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ("-week_start",)
+        constraints = [models.UniqueConstraint(fields=("user", "course", "week_start"),
+                                                   name="analytics_unique_weekly_snapshot")]
+        indexes = [models.Index(fields=("user", "course", "week_start"), name="an_snapshot_user_course")]
+
+
+class LearningRisk(UUIDModel):
+    class Level(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        ACKNOWLEDGED = "acknowledged", "Acknowledged"
+        RESOLVED = "resolved", "Resolved"
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="learning_risks")
+    course = models.ForeignKey("content.Course", on_delete=models.CASCADE,
+                               related_name="learning_risks")
+    risk_level = models.CharField(max_length=10, choices=Level.choices)
+    risk_score = models.FloatField(validators=(MinValueValidator(0), MaxValueValidator(1)))
+    confidence = models.CharField(max_length=10, choices=Level.choices, default=Level.LOW)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    evidence = models.JSONField(default=list)
+    model_version = models.CharField(max_length=40, default="rules-v1")
+    detected_at = models.DateTimeField(default=timezone.now)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-detected_at",)
+        indexes = [models.Index(fields=("user", "course", "status"), name="an_risk_user_course")]
+
+
+class Intervention(UUIDModel):
+    class Action(models.TextChoices):
+        RESUME_COURSE = "resume_course", "Resume course"
+        REVIEW_CONCEPT = "review_concept", "Review concept"
+        TAKE_QUIZ = "take_quiz", "Take quiz"
+        SHORT_SESSION = "short_session", "Short study session"
+
+    risk = models.ForeignKey(LearningRisk, on_delete=models.CASCADE, related_name="interventions")
+    action_type = models.CharField(max_length=30, choices=Action.choices)
+    title = models.CharField(max_length=255)
+    reason = models.TextField()
+    priority = models.PositiveSmallIntegerField(default=1)
+    estimated_minutes = models.PositiveSmallIntegerField(default=15)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ("priority", "created_at")

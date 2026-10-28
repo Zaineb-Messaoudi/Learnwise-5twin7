@@ -110,6 +110,10 @@ def dashboard_for(user, days=30):
     since = timezone.now() - timedelta(days=days)
     sessions = LearningSession.objects.filter(user=user, started_at__gte=since)
     performances = Performance.objects.filter(user=user)
+    measured_performances = list(performances.filter(quiz_count__gt=0))
+    assessment_count = sum(item.quiz_count for item in measured_performances)
+    weighted_score = (sum(item.average_score * item.quiz_count for item in measured_performances) /
+                      assessment_count if assessment_count else 0)
     daily = {}
     for session in sessions:
         key = session.started_at.date().isoformat()
@@ -137,7 +141,8 @@ def dashboard_for(user, days=30):
         "data_source": "live",
         "stats": {
             "learning_hours": round((sessions.aggregate(v=Sum("duration"))["v"] or 0) / 3600, 1),
-            "average_quiz_score": round(performances.aggregate(v=Avg("average_score"))["v"] or 0, 1),
+            "average_quiz_score": round(weighted_score, 1),
+            "assessment_count": assessment_count,
             "streak_days": _streak(user),
             "achievement_count": Achievement.objects.filter(user=user).count(),
             "courses_enrolled": user.enrollments.filter(status="active").count(),

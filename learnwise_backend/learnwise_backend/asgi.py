@@ -19,7 +19,10 @@ from analytics.middleware import QueryStringJWTAuthMiddleware  # noqa: E402
 from analytics.routing import websocket_urlpatterns as analytics_websocket_urlpatterns  # noqa: E402
 from content.routing import websocket_urlpatterns as content_websocket_urlpatterns  # noqa: E402
 
-websocket_urlpatterns = content_websocket_urlpatterns + analytics_websocket_urlpatterns
+# Analytics owns the legacy /ws/progress/<id>/ compatibility route. It must be
+# matched before the older content route with the same URL; all other content
+# WebSockets keep their normal routing.
+websocket_urlpatterns = analytics_websocket_urlpatterns + content_websocket_urlpatterns
 
 application = ProtocolTypeRouter({
     "http": django_asgi_app,

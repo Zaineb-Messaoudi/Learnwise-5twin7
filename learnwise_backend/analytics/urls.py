@@ -19,6 +19,11 @@ urlpatterns = [
     path("teacher/overview/", views.teacher_overview, name="teacher-overview"),
     path("admin/overview/", views.admin_overview, name="admin-overview"),
     path("recommendations/", views.recommendations, name="recommendations"),
+    path("student/indicators/", views.student_indicators, name="student-indicators"),
+    path("student/weaknesses/", views.weaknesses, name="student-weaknesses"),
+    path("cohorts/<uuid:cohort_id>/comparison/", views.cohort_report, name="cohort-comparison"),
+    path("radar/", views.learning_radar, name="learning-radar"),
+    path("interventions/<uuid:intervention_id>/complete/", views.complete_intervention, name="complete-intervention"),
     path("sessions/start/", views.LearningSessionViewSet.as_view({"post": "start"}), name="session-start"),
     path("sessions/<uuid:pk>/end/", views.LearningSessionViewSet.as_view({"post": "end"}), name="session-end"),
 ]

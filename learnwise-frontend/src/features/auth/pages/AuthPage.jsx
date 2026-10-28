@@ -192,15 +192,24 @@ export function AuthPage({ register = false }) {
         return;
       }
       // Map Django REST framework field errors (e.g. {"email": ["..."]}) to the matching inputs.
-      const backendErrors = cause?.response?.data?.errors || {};
+      const responseData = cause?.response?.data;
+      // DRF normally returns field errors at the top level
+      // ({ email: ['...'], password: ['...'] }). Some APIs wrap them in
+      // `errors`, so support both formats.
+      const backendErrors = responseData?.errors || (
+        responseData && typeof responseData === 'object' && !Array.isArray(responseData)
+          ? responseData
+          : {}
+      );
       const fieldMap = { email: 'email', password: 'password', confirm_password: 'confirmPassword', first_name: 'firstName', last_name: 'lastName' };
       const nextFieldErrors = {};
       Object.entries(backendErrors).forEach(([field, messages]) => {
         const inputName = fieldMap[field] || field;
-        if (messages && messages.length) nextFieldErrors[inputName] = messages[0];
+        if (Array.isArray(messages) && messages.length) nextFieldErrors[inputName] = String(messages[0]);
+        else if (typeof messages === 'string' && field !== 'detail') nextFieldErrors[inputName] = messages;
       });
       setFieldErrors(nextFieldErrors);
-      const generalError = cause?.response?.data?.detail || cause.message || 'Could not authenticate. Check your details and try again.';
+      const generalError = responseData?.detail || cause.message || 'Could not authenticate. Check your details and try again.';
       setError(Object.keys(nextFieldErrors).length ? '' : generalError);
     } finally {
       setLoading('');

@@ -30,7 +30,9 @@ qrcode[pil]>=7.4
 
 # Face Recognition: frontend uses face-api.js (generates 128-dim descriptors)
 # Backend only compares descriptors using numpy (Euclidean distance)
-numpy>=1.24
+numpy>=2.0
+pandas>=2.2
+scikit-learn>=1.5
 
 # MySQL (set DB_CONNECTION=mysql in .env to use)
 mysqlclient>=2.2

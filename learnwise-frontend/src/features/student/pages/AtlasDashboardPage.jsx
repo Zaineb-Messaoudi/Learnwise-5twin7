@@ -25,8 +25,13 @@ export function AtlasDashboardPage() {
   const queryClient = useQueryClient();
   const analyticsSocket = useWebSocket(analyticsApi.socketPath(), isBackendApiEnabled);
   const overviewQuery = useQuery({ queryKey: ['analytics', 'student-overview', '30d'], queryFn: () => analyticsApi.studentOverview('30d'), enabled: isBackendApiEnabled });
+  // Dashboard reads must stay side-effect free. Risk evaluation is triggered by
+  // the scheduled backend command (or by an explicit refresh action), not by a
+  // query which can be re-run after each WebSocket event.
+  const radarQuery = useQuery({ queryKey: ['analytics', 'radar'], queryFn: analyticsApi.radar, enabled: isBackendApiEnabled });
   useEffect(() => {
-    if (!analyticsSocket.lastMessage?.event) return;
+    const event = analyticsSocket.lastMessage?.event;
+    if (!event || event === 'connected') return;
     void queryClient.invalidateQueries({ queryKey: ['analytics'] });
   }, [analyticsSocket.lastMessage, queryClient]);
   const dateLabel = new Intl.DateTimeFormat(navigator.language, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
@@ -46,8 +51,10 @@ export function AtlasDashboardPage() {
       { label: 'THEN TRY', title: move.action, state: 'next' },
     ] : [];
   const progress = overview.stats || {};
+  const radarRisk = radarQuery.data?.risks?.[0];
   return <AppShell><div className="atlas-dashboard">
     <div className="dashboard-heading"><div><p className="atlas-kicker">{dateLabel}</p><h1>{greeting}, {firstName}.</h1><p className="dashboard-subtitle">{isBackendApiEnabled ? 'Your learning activity and next steps, in one place.' : 'The map is open. Here is the most useful place to begin.'}</p></div><Link to="/student/learning-path" className="atlas-button atlas-button-bright">Open full atlas <Compass size={16} aria-hidden="true"/></Link></div>
+    {isBackendApiEnabled && radarRisk && <section className="dashboard-empty" aria-label="Learning Radar alert"><Target size={24}/><div><p className="atlas-kicker">Learning Radar · {radarRisk.confidence} confidence</p><h2>{radarRisk.risk_level.toUpperCase()} risk in {radarRisk.course}</h2><p>{radarRisk.evidence.map(item => `${item.signal}: ${item.value}`).join(' · ')}</p></div><Link className="button button-secondary" to="/student/performance">Review evidence <ArrowRight size={14}/></Link></section>}
     {move ? <section className="dashboard-command" aria-labelledby="next-move-heading">
       <div className="command-copy"><p className="atlas-kicker">Your next best move</p><h2 id="next-move-heading">Connect the dots<br/><i>in {move.course_title || 'your course'}.</i></h2><p>Continue from {move.current_topic || 'your current topic'} to {move.next_topic || 'the next concept'} with a focused learning activity.</p><div className="command-source"><BookOpen size={15} aria-hidden="true"/><span>{move.course_title || 'Your course'}</span>{move.chapter && <b>{move.chapter}</b>}</div><div className="command-meta"><span><Clock3 size={14} aria-hidden="true"/> {move.estimated_minutes || 15} min</span><span><Target size={14} aria-hidden="true"/> {move.difficulty || 'Recommended'}</span></div><Link to={move.href || '/student/exercises'} className="atlas-button atlas-button-dark">{move.cta || 'Continue the thread'} <ArrowRight size={15} aria-hidden="true"/></Link></div>
       <figure className="command-map" aria-labelledby="command-map-caption"><figcaption id="command-map-caption" className="command-map-caption"><span>YOUR LEARNING PATH</span><b>{steps.length} connected steps</b></figcaption><svg className="command-map-connections" viewBox="0 0 1000 560" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="learning-path-gradient" x1="0" x2="1"><stop offset="0%" stopColor="#d8ff45"/><stop offset="52%" stopColor="#57d8ff"/><stop offset="100%" stopColor="#ff4f87"/></linearGradient></defs><path className="command-map-path-glow" d="M170 390 C300 390 300 205 470 205 S690 390 830 390"/><path className="command-map-path" d="M170 390 C300 390 300 205 470 205 S690 390 830 390"/><path className="command-map-path-mobile command-map-path-glow" d="M500 90 C500 190 500 190 500 280 S500 370 500 470"/></svg>{steps.map((step, index) => <div key={`${step.state}-${step.title}`} className={`command-map-step map-step-${step.state}`} aria-current={step.state === 'focus' ? 'step' : undefined}><span className="map-step-marker">{step.state === 'current' ? <Check size={13} aria-hidden="true"/> : step.state === 'focus' ? <span/> : <Target size={13} aria-hidden="true"/>}</span><span className="map-step-copy"><small>{step.label}</small><b>{step.title}</b></span></div>)}<div className="command-map-footer"><span><i/> {isBackendApiEnabled ? 'Recommended from your progress' : 'Suggested learning thread'}</span><span>1 of {steps.length}</span></div></figure>
