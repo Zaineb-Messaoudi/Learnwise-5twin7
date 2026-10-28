@@ -75,12 +75,20 @@ def _gemini_transcribe(file_path):
 
 
 PROVIDERS = {'huggingface': _huggingface_transcribe, 'gemini': _gemini_transcribe}
+PROVIDER_ALIASES = {
+    'huggingface': 'huggingface',
+    'gemini': 'gemini',
+}
 
 
 def transcribe_audio(file_path):
     names = get_setting('TRANSCRIPTION_PROVIDERS', 'huggingface,gemini').split(',')
     last_error = None
-    for name in (n.strip() for n in names):
+    for raw_name in names:
+        normalized_name = raw_name.strip().lower()
+        name = PROVIDER_ALIASES.get(normalized_name)
+        if name is None:
+            continue
         provider = PROVIDERS.get(name)
         if provider is None:
             continue
@@ -90,7 +98,7 @@ def transcribe_audio(file_path):
             last_error = exc
             logger.warning(
                 "Transcription : fournisseur %s indisponible (%s)",
-                _sanitize_for_log(name),
+                name,
                 exc.code,
             )
     raise last_error or AIServiceError(
