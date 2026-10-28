@@ -28,6 +28,12 @@ from .serializers import (
     QuizWriteSerializer, exercise_publish_errors, publish_errors, save_answers,
 )
 
+from .models import Quiz, Question, Choice, QuizAttempt, Answer, Evaluation, Exercise
+from .serializers import (
+    QuizSerializer, QuestionSerializer, ChoiceSerializer,
+    QuizAttemptSerializer, AnswerSerializer, EvaluationSerializer, ExerciseSerializer,
+)
+from content.models import Course
 
 @api_view(['GET'])
 def api_root(request):

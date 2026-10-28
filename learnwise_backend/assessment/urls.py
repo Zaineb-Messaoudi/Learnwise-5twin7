@@ -4,9 +4,18 @@ Elles suivent exactement le tableau du fichier docs/frontend-backend-contract.md
 
 Toutes les routes du contrat sont réelles (quiz, tentatives, exercices, génération IA).
 """
-from django.urls import path
-
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from . import views
+
+router = DefaultRouter()
+router.register(r'quizzes', views.QuizViewSet, basename='quiz')
+router.register(r'questions', views.QuestionViewSet, basename='question')
+router.register(r'choices', views.ChoiceViewSet, basename='choice')
+router.register(r'attempts', views.QuizAttemptViewSet, basename='attempt')
+router.register(r'answers', views.AnswerViewSet, basename='answer')
+router.register(r'evaluations', views.EvaluationViewSet, basename='evaluation')
+router.register(r'exercises', views.ExerciseViewSet, basename='exercise')
 
 urlpatterns = [
     path('', views.api_root, name='assessment-root'),
@@ -31,4 +40,7 @@ urlpatterns = [
     path('exercises/<int:exercise_id>/', views.ExerciseDetailView.as_view(), name='exercise-detail'),          # GET, PATCH, DELETE
     path('exercises/<int:exercise_id>/publish/', views.ExercisePublishView.as_view(), name='exercise-publish'), # POST publier
     path('exercises/<int:exercise_id>/submissions/', views.ExerciseSubmissionView.as_view(), name='exercise-submissions'),  # POST répondre
+    path('', include(router.urls)),
+    path('generations/', views.QuizGenerationViewSet.as_view({'post': 'create'}), name='quiz-generations'),
+    path('generations/<int:pk>/', views.QuizGenerationViewSet.as_view({'get': 'retrieve'}), name='quiz-generation-detail'),
 ]

@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Loader2, CheckCircle, AlertCircle, User, Video, Mail, X, Check } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { FaceCapture } from '../components/FaceCapture';
 import { authApi } from '../../../api/auth.api';
+import { isBackendApiEnabled } from '../../../api/client';
 import './CompleteProfilePage.css';
 
 function getRouteRole(backendRole) {
@@ -21,6 +22,8 @@ export function CompleteProfilePage() {
   const [selectedRole, setSelectedRole] = useState(null);
   const [faceCaptured, setFaceCaptured] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
+  const [resendCountdown, setResendCountdown] = useState(0);
+  const pollingRef = useRef(null);
 
   useEffect(() => {
     const incomingUser = location.state?.user;
@@ -83,6 +86,13 @@ export function CompleteProfilePage() {
     };
 
     initializeProfile();
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
   }, [location.state, navigate, isAuthenticated]);
 
   const checkProfileCompletion = async (user) => {
@@ -146,6 +156,31 @@ export function CompleteProfilePage() {
     setStatus('face');
   };
 
+  const startVerificationPolling = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+    }
+    pollingRef.current = setInterval(async () => {
+      try {
+        const response = await getUser();
+        if (response.success && response.data?.email_verified) {
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+          updateUser(response.data);
+          setStatus('verified');
+          setTimeout(() => {
+            const routeRole = getRouteRole(response.data.role);
+            navigate(`/${routeRole}/dashboard`, { replace: true });
+          }, 1000);
+        }
+      } catch {
+        // Keep polling until verification completes or the user navigates away.
+      }
+    }, 3000);
+  };
+
   const handleFaceCapture = async (descriptor, qualityScore, enrollmentImage) => {
     setStatus('registering-face');
     try {
@@ -164,6 +199,26 @@ export function CompleteProfilePage() {
     }
   };
 
+  const resendVerification = async () => {
+    if (resendCountdown > 0) return;
+    setError('');
+    try {
+      await authApi.resendVerification();
+      setResendCountdown(60);
+      const countdown = setInterval(() => {
+        setResendCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(countdown);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } catch (err) {
+      setError('Failed to resend verification email.');
+    }
+  };
+
   // Render functions for each step
   const renderRoleStep = () => (
     <div className="complete-profile-page">
@@ -171,7 +226,7 @@ export function CompleteProfilePage() {
         <div className="complete-header">
           <User size={48} />
           <h1>Welcome to Learnwise!</h1>
-          <p>Let's finish setting up your account</p>
+          <p>Let&apos;s finish setting up your account</p>
         </div>
 
         <div className="role-selection">
@@ -232,12 +287,12 @@ export function CompleteProfilePage() {
         <div className="complete-header">
           <Mail size={48} className="pulse" />
           <h1>Verify your email</h1>
-          <p>We've sent a verification link to your email.</p>
+          <p>We&apos;ve sent a verification link to your email.</p>
           <p className="hint">Click the link to complete your registration</p>
         </div>
         <div className="resend-section">
           <button onClick={resendVerification} disabled={resendCountdown > 0} className="btn-resend">
-            {resendCountdown > 0 ? `Resend in {resendCountdown}s` : 'Resend verification email'}
+            {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : 'Resend verification email'}
           </button>
         </div>
       </div>

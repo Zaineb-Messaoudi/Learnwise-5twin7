@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ArrowRight, BookOpen, Check, Clock3, Compass, MessageCircle, Target } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import '../../../pages/signature-pages.css';
 import { AppShell } from '../../../layouts/AppShell';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -9,6 +9,7 @@ import { Button, PageHeader } from '../../../components/shared/Primitives';
 import { ErrorState, LoadingState } from '../../../components/ui/States';
 import { analyticsApi } from '../../../api/analytics.api';
 import { isBackendApiEnabled } from '../../../api/client';
+import { useWebSocket } from '../../../hooks/useWebSocket';
 
 const demoMove = {
   course_title: 'AI & Machine Learning',
@@ -21,7 +22,13 @@ const demoMove = {
 
 export function AtlasDashboardPage() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const analyticsSocket = useWebSocket(analyticsApi.socketPath(), isBackendApiEnabled);
   const overviewQuery = useQuery({ queryKey: ['analytics', 'student-overview', '30d'], queryFn: () => analyticsApi.studentOverview('30d'), enabled: isBackendApiEnabled });
+  useEffect(() => {
+    if (!analyticsSocket.lastMessage?.event) return;
+    void queryClient.invalidateQueries({ queryKey: ['analytics'] });
+  }, [analyticsSocket.lastMessage, queryClient]);
   const dateLabel = new Intl.DateTimeFormat(navigator.language, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';

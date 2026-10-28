@@ -10,9 +10,11 @@ export function useProgressSync(userId, enabled = true) {
   const [notifications, setNotifications] = useState([]);
   const reconnectTimeoutRef = useRef(null);
   const handlersRef = useRef(new Map());
+  const shouldReconnectRef = useRef(false);
 
   const connect = useCallback(() => {
     if (!enabled || !isBackendApiEnabled || !userId) return;
+    shouldReconnectRef.current = true;
     setStatus('connecting');
     const wsUrl = `/ws/progress/${encodeURIComponent(userId)}/`;
     const socket = createWebSocket(wsUrl);
@@ -65,13 +67,14 @@ export function useProgressSync(userId, enabled = true) {
     socket.onclose = () => {
       console.log('[ProgressSync] Disconnected');
       setStatus('disconnected');
-      if (enabled && isBackendApiEnabled && userId) {
+      if (shouldReconnectRef.current && enabled && isBackendApiEnabled && userId) {
         reconnectTimeoutRef.current = setTimeout(connect, 3000);
       }
     };
   }, [enabled, userId]);
 
   const disconnect = useCallback(() => {
+    shouldReconnectRef.current = false;
     if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     if (socketRef.current) {
       socketRef.current.close();

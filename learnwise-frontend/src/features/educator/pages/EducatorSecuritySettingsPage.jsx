@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Key, Smartphone, Clock, Activity, History, AlertTriangle, LogOut, CheckCircle, Copy, QrCode as QrCodeIcon, Trash2, Settings, ChevronDown } from 'lucide-react';
+import { Shield, Key, Smartphone, Clock, Activity, History, AlertTriangle, LogOut, CheckCircle, Copy, QrCode as QrCodeIcon, Trash2, Settings, ChevronDown, Loader2 } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { authApi } from '../../../api/auth.api';
 import { AppShell } from '../../../layouts/AppShell';
@@ -8,13 +8,14 @@ import { ErrorState, LoadingState } from '../../../components/ui/States';
 import './EducatorSecuritySettingsPage.css';
 
 export function EducatorSecuritySettingsPage() {
-  const {
-    user,
-    changePassword,
-    updateProfile,
-    get2FASetup,
-    enable2FA,
-    disable2FA,
+    const {
+        user,
+        changePassword,
+        updateProfile,
+        getUser,
+        get2FASetup,
+        enable2FA,
+        disable2FA,
     listSessions,
     revokeSession,
     revokeAllSessions,
@@ -111,6 +112,11 @@ export function EducatorSecuritySettingsPage() {
     if (result.success) {
       setTwofaData(result.data);
       setTwofaStep('verify');
+    } else if (/already enabled/i.test(result.error || '')) {
+      // 2FA is already enabled on the backend but the local user snapshot is stale.
+      await getUser();
+      setTwofaStep('status');
+      setLocalSuccess('Two-factor authentication is already enabled.');
     } else {
       setLocalError(result.error);
     }

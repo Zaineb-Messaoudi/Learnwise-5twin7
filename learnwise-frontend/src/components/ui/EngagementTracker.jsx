@@ -5,13 +5,14 @@ export function EngagementTracker({
   sessionId,
   onEngagementUpdate,
   interval = 30000,
-  enabled = true,
+  enabled = false,
   className = ''
 }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const intervalRef = useRef(null);
   const modelLoadedRef = useRef(false);
+  const [isEnabled, setIsEnabled] = useState(enabled);
   const [status, setStatus] = useState('idle');
   const [engagement, setEngagement] = useState({ score: 0, present: false, attentive: false, emotions: {} });
   const [error, setError] = useState(null);
@@ -75,14 +76,15 @@ export function EngagementTracker({
           surprised: expressions.surprised,
         };
         const topEmotion = Object.entries(emotions).reduce((a, b) => emotions[a[0]] > emotions[b[0]] ? a : b)[0];
-        const score = Math.round((present ? 0.6 : 0) + (attentive ? 0.4 : 0) * 100);
+        const score = Math.round(((present ? 0.6 : 0) + (attentive ? 0.4 : 0)) * 100);
 
         const newEngagement = { score, present, attentive, emotions, topEmotion };
         setEngagement(newEngagement);
         onEngagementUpdate?.(sessionId, newEngagement);
       } else {
-        setEngagement(prev => ({ ...prev, present: false, attentive: false, score: 0 }));
-        onEngagementUpdate?.(sessionId, { ...engagement, present: false, attentive: false, score: 0 });
+        const newEngagement = { ...engagement, present: false, attentive: false, score: 0 };
+        setEngagement(newEngagement);
+        onEngagementUpdate?.(sessionId, newEngagement);
       }
     } catch (err) {
       console.warn('Engagement detection failed:', err);
@@ -90,7 +92,7 @@ export function EngagementTracker({
   }, [sessionId, onEngagementUpdate, engagement]);
 
   const start = useCallback(async () => {
-    if (!enabled) return;
+    if (!isEnabled) return;
     if (!modelLoadedRef.current) await loadModels();
     if (modelLoadedRef.current) {
       const cameraStarted = await startCamera();
@@ -99,7 +101,7 @@ export function EngagementTracker({
         intervalRef.current = setInterval(detectEngagement, interval);
       }
     }
-  }, [enabled, loadModels, startCamera, detectEngagement, interval]);
+  }, [isEnabled, loadModels, startCamera, detectEngagement, interval]);
 
   const stop = useCallback(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -116,9 +118,13 @@ export function EngagementTracker({
   }, [status, start, stop]);
 
   useEffect(() => {
-    if (enabled) start();
+    setIsEnabled(enabled);
+  }, [enabled]);
+
+  useEffect(() => {
+    if (isEnabled) start();
     return () => stop();
-  }, [enabled, start, stop]);
+  }, [isEnabled, start, stop]);
 
   const getEngagementLabel = (score) => {
     if (score >= 80) return { label: 'Highly engaged', color: 'text-lime' };
@@ -129,7 +135,24 @@ export function EngagementTracker({
 
   const { label, color } = getEngagementLabel(engagement.score);
 
-  if (!enabled) return null;
+  if (!isEnabled) {
+    return (
+      <div className="engagement-consent" role="region" aria-label="Engagement tracking consent">
+        <div className="engagement-consent-card">
+          <Brain size={24} />
+          <h3>Engagement tracking</h3>
+          <p>
+            Enable camera-based engagement tracking to measure your presence and
+            attentiveness during this session. Your video is processed locally and
+            never stored or shared.
+          </p>
+          <button className="button button-primary" onClick={() => setIsEnabled(true)} aria-label="Enable engagement tracking">
+            Enable tracking
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`engagement-tracker ${className}`} role="region" aria-label="Engagement tracking">

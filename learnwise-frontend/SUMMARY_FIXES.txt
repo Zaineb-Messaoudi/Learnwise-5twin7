@@ -1,0 +1,48 @@
+FRONTEND FIXES COMPLETE - September 2026
+
+CRITICAL FIXES APPLIED:
+
+1. presence.api.js - Added missing import React
+   - File: src/api/presence.api.js
+   - Problem: Used React hooks without importing React
+   - Fix: Added "import React from 'react';" at line 1
+
+2. CourseCard.jsx - Replaced inline styles with CSS classes
+   - File: src/features/student/components/CourseCard.jsx
+   - Fixed: course-status-badge (uses .course-status-badge CSS class)
+   - Fixed: progress bar structure with CSS classes .course-progress, .progress-track, .progress-value, .progress-percentage
+
+3. CourseFilters.jsx - Replaced all inline styles with CSS classes
+   - File: src/features/student/components/CourseFilters.jsx
+   - Fixed: All four filter labels and selects use .course-filters label/.course-filters select CSS
+   - Fixed: Apply button uses .apply-button CSS class
+   - Main div uses .course-filters CSS class
+
+4. LessonNavigator.jsx - CSS class names now match CSS
+   - File: src/features/student/components/LessonNavigator.jsx
+   - Fixed: Uses .course-curriculum (breadcrumb), .course-chapter-sidebar, .course-chapter-item, .course-chapter-icon
+   - All 4 CSS classes now defined in courses.css
+
+5. CourseDetailPage.jsx - usePresence wired into UI
+   - File: src/features/student/pages/CourseDetailPage.jsx
+   - Fixed: usePresence(id) hook called and totalActive displayed
+   - Fixed: Online student badge uses .total-active CSS class
+
+6. AppRoutes.jsx - Removed dead code
+   - File: src/routes/AppRoutes.jsx
+   - Fixed: Removed duplicate /teacher/ai-generation route (line 136) since line 134 already handles it with AssessmentStudioPage
+
+7. CourseModerationPage.jsx - API usage verified
+   - File: src/features/admin/pages/CourseModerationPage.jsx
+   - Confirmed: Uses coursesApi.approve, coursesApi.reject, coursesApi.submitForReview correctly
+
+CSS CLASSES ADDED TO courses.css:
+
+- .course-status-badge / .course-status-badge.published / .course-status-badge.draft / .course-status-badge.drafted
+- .progress-value / .progress-track / .course-progress / .progress-percentage
+- .course-filters / .course-filters h3 / .course-filters label / .course-filters select / .course-filters .apply-button
+- .total-active
+- .course-chapter-sidebar
+- .course-chapter-icon / .course-chapter-icon.kind-video / .course-chapter-icon.kind-audio / .course-chapter-icon.kind-document / .course-chapter-icon.kind-code
+
+STATUS: All 7 critical remaining fixes completed. Frontend at ~90% complete.

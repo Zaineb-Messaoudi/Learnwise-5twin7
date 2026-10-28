@@ -6,13 +6,14 @@ import { AppShell } from '../../../layouts/AppShell';
 import './SecuritySettingsPage.css';
 
 export function SecuritySettingsPage() {
-  const {
-    user,
-    changePassword,
-    updateProfile,
-    get2FASetup,
-    enable2FA,
-    disable2FA,
+    const {
+        user,
+        changePassword,
+        updateProfile,
+        getUser,
+        get2FASetup,
+        enable2FA,
+        disable2FA,
     listSessions,
     revokeSession,
     revokeAllSessions,
@@ -109,6 +110,12 @@ export function SecuritySettingsPage() {
     if (result.success) {
       setTwofaData(result.data);
       setTwofaStep('verify');
+    } else if (/already enabled/i.test(result.error || '')) {
+      // 2FA is already enabled on the backend but the local user snapshot is stale.
+      // Refresh the profile so the status view reflects reality instead of erroring.
+      await getUser();
+      setTwofaStep('status');
+      setLocalSuccess('Two-factor authentication is already enabled.');
     } else {
       setLocalError(result.error);
     }

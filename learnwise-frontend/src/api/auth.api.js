@@ -20,7 +20,7 @@ export const authApi = {
 
     // Email verification
     verifyEmail: (token) => apiRequest('/auth/verify-email/', { method: 'POST', body: { token } }),
-    verifyCode: (code) => apiRequest('/auth/verify-code/', { method: 'POST', body: { code } }),
+    verifyCode: (code, email) => apiRequest('/auth/verify-code/', { method: 'POST', body: { code, email } }),
     resendVerification: () => apiRequest('/accounts/resend-verification/', { method: 'POST' }),
     stepUp: (password) => apiRequest('/auth/step-up/', { method: 'POST', body: { password } }),
     // For people who cannot sign in yet because the address is not verified
@@ -38,8 +38,13 @@ export const authApi = {
 
     // Two-factor authentication
     get2FASetup: () => apiRequest('/auth/2fa/setup/'),
+    get2FAStatus: () => apiRequest('/auth/2fa/setup/'),
     enable2FA: (payload) => apiRequest('/auth/2fa/setup/', { method: 'POST', body: payload }),
     disable2FA: (payload) => apiRequest('/auth/2fa/disable/', { method: 'POST', body: payload }),
+
+    // Social accounts
+    getSocialAccounts: () => apiRequest('/auth/social/accounts/'),
+    unlinkSocialAccount: (provider) => apiRequest('/auth/social/unlink/', { method: 'POST', body: { provider } }),
 
     // Email change
     requestEmailChange: (newEmail) => apiRequest('/auth/email-change/', { method: 'POST', body: { new_email: newEmail } }),
@@ -78,8 +83,8 @@ export const authApi = {
       return apiRequest('/auth/face/register/', { method: 'POST', body: formData });
     },
     verifyFace: (descriptor) => apiRequest('/auth/face/verify/', { method: 'POST', body: { descriptor } }),
-    getFaceProfile: () => apiRequest('/accounts/face/profile/'),
-    deleteFaceProfile: () => apiRequest('/accounts/face/profile/', { method: 'DELETE' }),
+    getFaceProfile: () => apiRequest('/auth/face/profile/'),
+    deleteFaceProfile: () => apiRequest('/auth/face/profile/', { method: 'DELETE' }),
 
     // Security events
     getSecurityEvents: () => apiRequest('/auth/security-events/'),

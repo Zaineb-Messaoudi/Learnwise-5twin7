@@ -6,9 +6,14 @@ django-cors-headers>=4.3
 django-filter>=23.5
 channels>=4.0
 channels-redis>=4.1
+daphne>=4.1
 
 # Database
 # Using SQLite by default (no extra package needed)
+# Set DB_CONNECTION=mysql to use MySQL (requires mysqlclient)
+
+# S3 / Supabase Storage (set USE_S3=True in .env to enable)
+django-storages[boto3]>=1.14
 
 # Environment
 python-dotenv>=1.0
@@ -25,10 +30,18 @@ qrcode[pil]>=7.4
 
 # Face Recognition: frontend uses face-api.js (generates 128-dim descriptors)
 # Backend only compares descriptors using numpy (Euclidean distance)
-# No additional face recognition library needed
+numpy>=1.24
+
+# MySQL (set DB_CONNECTION=mysql in .env to use)
+mysqlclient>=2.2
 
 # Image Processing
 Pillow>=10.0
+
+# Optional: PDF thumbnail rendering (PyMuPDF/fitz)
+# pip install PyMuPDF
+# Optional: Video frame extraction (opencv-python)
+# pip install opencv-python
 
 # Testing
 pytest>=7.4

@@ -223,11 +223,6 @@ export function FaceCapture({
       qualityScore = Math.min(1, Math.max(0, qualityScore));
       setQuality(qualityScore);
 
-      if (qualityScore < 0.3) {
-        setCaptureFeedback('Photo quality too low. Move closer and ensure good lighting, then try again.');
-        return;
-      }
-
       const descArray = Array.from(descriptor);
       setDescriptor(descArray);
 
@@ -402,7 +397,7 @@ export function FaceCapture({
               onClick={capturePhoto}
               disabled={isCapturing}
             >
-              {isCapturing ? 'Capturing…' : quality < 0.3 ? 'Adjust position, then Take Photo' : 'Take Photo'}
+              {isCapturing ? 'Capturing…' : 'Take Photo'}
             </button>
 
           </div>
