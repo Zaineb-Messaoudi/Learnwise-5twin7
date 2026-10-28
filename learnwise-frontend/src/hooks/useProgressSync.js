@@ -11,6 +11,7 @@ export function useProgressSync(userId, enabled = true) {
   const reconnectTimeoutRef = useRef(null);
   const handlersRef = useRef(new Map());
   const shouldReconnectRef = useRef(false);
+  const sanitizeForLog = (value) => String(value ?? '').replace(/[\r\n]/g, '');
 
   const connect = useCallback(() => {
     if (!enabled || !isBackendApiEnabled || !userId) return;
@@ -71,7 +72,7 @@ export function useProgressSync(userId, enabled = true) {
             break;
           default:
             if (message.type !== 'connected') {
-              console.log('[ProgressSync] Unknown message type:', message.type);
+              console.log('[ProgressSync] Unknown message type:', sanitizeForLog(message.type));
             }
         }
       } catch (err) {
