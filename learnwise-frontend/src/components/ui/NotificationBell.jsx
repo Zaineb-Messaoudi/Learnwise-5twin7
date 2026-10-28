@@ -80,7 +80,7 @@ export function NotificationBell() {
               <div className="notification-empty">
                 <Bell size={24} />
                 <p>No notifications yet</p>
-                <span>You'll see updates here when they arrive</span>
+                <span>You&apos;ll see updates here when they arrive</span>
               </div>
             ) : (
               notifications.map((notification, index) => (

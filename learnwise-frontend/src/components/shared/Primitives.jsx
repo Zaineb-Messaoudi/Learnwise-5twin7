@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Clock3, MoreHorizontal, Upload } from 'lucide-react';
+import { Clock3, MoreHorizontal, Upload, ArrowRight } from 'lucide-react';
 
 function Button({ children, variant = 'primary', onClick, className = '', type = 'button', disabled = false }) { return <button type={type} onClick={onClick} disabled={disabled} className={`button button-${variant} ${className}`}>{children}</button>; }
 function ProgressBar({ value, color = 'var(--accent)', label = `${value}% complete` }) { return <div className="progress-track" role="progressbar" aria-valuenow={value} aria-valuemin="0" aria-valuemax="100" aria-label={label}><div className="progress-value" style={{ width: `${value}%`, background: color }}/></div>; }
