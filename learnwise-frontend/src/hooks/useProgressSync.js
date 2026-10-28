@@ -14,7 +14,10 @@ export function useProgressSync(userId, enabled = true) {
   const connect = useCallback(() => {
     if (!enabled || !isBackendApiEnabled || !userId) return;
     setStatus('connecting');
-    const wsUrl = `/ws/progress/${encodeURIComponent(userId)}/`;
+    // The authenticated analytics socket is scoped to the current user on the
+    // server. Do not put the user id in the URL: it is both redundant and was
+    // pointing to a route that does not exist in Channels.
+    const wsUrl = '/ws/analytics/';
     const socket = createWebSocket(wsUrl);
     socketRef.current = socket;
 
@@ -25,12 +28,27 @@ export function useProgressSync(userId, enabled = true) {
 
     socket.onmessage = (event) => {
       try {
-        const message = JSON.parse(event.data);
+        const rawMessage = JSON.parse(event.data);
+        const eventTypes = {
+          'progress.updated': 'progress_update',
+          'achievement.earned': 'achievement_unlocked',
+          'session.updated': 'session_update',
+          'quiz.available': 'quiz_available',
+          'material.ready': 'material_ready',
+        };
+        const message = rawMessage.event
+          ? { ...rawMessage.data, type: eventTypes[rawMessage.event] || rawMessage.event }
+          : rawMessage;
         console.log('[ProgressSync] Received:', message);
         
         switch (message.type) {
           case 'progress_update':
-            setLatestProgress(prev => ({ ...prev, [message.course_id]: message.progress }));
+            setLatestProgress(prev => ({
+              ...prev,
+              [message.course_id]: Number(message.completion_percentage ?? message.progress ?? 0) / (
+                message.completion_percentage !== undefined ? 100 : 1
+              ),
+            }));
             setProgressUpdates(prev => [message, ...prev.slice(0, 49)]);
             handlersRef.current.get('progress')?.(message);
             break;
@@ -50,7 +68,9 @@ export function useProgressSync(userId, enabled = true) {
             handlersRef.current.get('material')?.(message);
             break;
           default:
-            console.log('[ProgressSync] Unknown message type:', message.type);
+            if (message.type !== 'connected') {
+              console.log('[ProgressSync] Unknown message type:', message.type);
+            }
         }
       } catch (err) {
         console.warn('[ProgressSync] Failed to parse message:', err);

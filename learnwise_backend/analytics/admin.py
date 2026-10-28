@@ -1,5 +1,7 @@
 from django.contrib import admin
-from .models import Achievement, Enrollment, LearningActivity, LearningPath, LearningSession, Performance, Progress
+from .models import (Achievement, Cohort, CohortMembership, Concept, Enrollment, Intervention,
+                     LearningActivity, LearningPath, LearningRisk, LearningSession, Performance,
+                     Progress, QuestionConcept, WeeklyLearningSnapshot)
 
 @admin.register(LearningPath)
 class LearningPathAdmin(admin.ModelAdmin):
@@ -36,3 +38,11 @@ class PerformanceAdmin(admin.ModelAdmin):
 class AchievementAdmin(admin.ModelAdmin):
     list_display = ("title", "user", "code", "earned_at")
     list_filter = ("code",)
+
+admin.site.register(Cohort)
+admin.site.register(CohortMembership)
+admin.site.register(Concept)
+admin.site.register(QuestionConcept)
+admin.site.register(WeeklyLearningSnapshot)
+admin.site.register(LearningRisk)
+admin.site.register(Intervention)

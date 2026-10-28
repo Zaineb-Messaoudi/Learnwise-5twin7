@@ -1,13 +1,16 @@
-from django.db.models import Avg
+from django.utils import timezone
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
-from accounts.permissions import IsStudent
-from .models import Achievement, Enrollment, LearningActivity, LearningPath, LearningSession, Performance, Progress
+from accounts.permissions import IsProfessorOrAdmin, IsStudent
+from .models import (Achievement, Cohort, Enrollment, Intervention, LearningActivity, LearningPath,
+                     LearningSession, Performance, Progress)
 from .permissions import AnalyticsRolePermission
 from .serializers import (AchievementSerializer, EnrollmentSerializer, LearningActivitySerializer, LearningPathSerializer,
                           LearningSessionSerializer, PerformanceSerializer, ProgressSerializer)
 from .services import dashboard_for, evaluate_achievements, recommendations_for
+from .reporting import cohort_comparison, concept_weaknesses, student_course_indicators
+from .radar import evaluate_course_risk, radar_for
 
 class OwnedQuerysetMixin:
     permission_classes = (permissions.IsAuthenticated, AnalyticsRolePermission)
@@ -77,10 +80,14 @@ class PerformanceViewSet(OwnedQuerysetMixin, mixins.RetrieveModelMixin, viewsets
     queryset, serializer_class = Performance.objects.select_related("course"), PerformanceSerializer
     def list(self, request):
         queryset = self.get_queryset()
-        average = queryset.aggregate(value=Avg("average_score"))["value"] or 0
+        measured = list(queryset.filter(quiz_count__gt=0))
+        attempts = sum(item.quiz_count for item in measured)
+        average = sum(item.average_score * item.quiz_count for item in measured) / attempts if attempts else 0
         topics = [{"name": item.course.title, "score": round(item.average_score),
-                   "trend": "Strong topic" if item.average_score >= 80 else "Worth another review"} for item in queryset]
+                   "trend": "Strong topic" if item.average_score >= 80 else "Worth another review",
+                   "attempts": item.quiz_count} for item in measured]
         return Response({"data_source": "live", "average_score": round(average, 1),
+                         "assessment_count": attempts,
                          "strong_topics": sum(item["score"] >= 80 for item in topics), "topics": topics,
                          "results": self.get_serializer(queryset, many=True).data})
 
@@ -102,3 +109,45 @@ def dashboard(request):
 @permission_classes((permissions.IsAuthenticated, IsStudent))
 def recommendations(request):
     return Response(recommendations_for(request.user))
+
+@api_view(("GET",))
+@permission_classes((permissions.IsAuthenticated, IsStudent))
+def student_indicators(request):
+    return Response(student_course_indicators(request.user))
+
+@api_view(("GET",))
+@permission_classes((permissions.IsAuthenticated, IsStudent))
+def weaknesses(request):
+    try:
+        minimum = min(max(int(request.query_params.get("minimum_answers", 2)), 1), 100)
+    except ValueError:
+        minimum = 2
+    return Response(concept_weaknesses(request.user, minimum))
+
+@api_view(("GET",))
+@permission_classes((permissions.IsAuthenticated, IsProfessorOrAdmin))
+def cohort_report(request, cohort_id):
+    from django.shortcuts import get_object_or_404
+    return Response(cohort_comparison(get_object_or_404(Cohort, pk=cohort_id)))
+
+@api_view(("GET", "POST"))
+@permission_classes((permissions.IsAuthenticated, IsStudent))
+def learning_radar(request):
+    if request.method == "POST":
+        courses = request.user.enrollments.exclude(status=Enrollment.Status.DROPPED).select_related("course")
+        for enrollment in courses:
+            # Compatibility for older frontend bundles: their query used POST
+            # and invalidated itself after every WebSocket notification. Keep
+            # evaluation available without producing a feedback loop.
+            evaluate_course_risk(request.user, enrollment.course, notify=False)
+    return Response(radar_for(request.user))
+
+@api_view(("POST",))
+@permission_classes((permissions.IsAuthenticated, IsStudent))
+def complete_intervention(request, intervention_id):
+    from django.shortcuts import get_object_or_404
+    intervention = get_object_or_404(Intervention, pk=intervention_id, risk__user=request.user)
+    if not intervention.completed_at:
+        intervention.completed_at = timezone.now()
+        intervention.save(update_fields=("completed_at",))
+    return Response({"id": str(intervention.pk), "completed_at": intervention.completed_at})

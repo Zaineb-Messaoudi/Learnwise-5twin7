@@ -26,7 +26,9 @@ qrcode[pil]>=7.4
 
 # Face Recognition: frontend uses face-api.js (generates 128-dim descriptors)
 # Backend only compares descriptors using numpy (Euclidean distance)
-# No additional face recognition library needed
+numpy>=2.0
+pandas>=2.2
+scikit-learn>=1.5
 
 # Image Processing
 Pillow>=10.0

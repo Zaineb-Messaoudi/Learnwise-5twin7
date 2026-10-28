@@ -7,7 +7,9 @@ from rest_framework.test import APIClient
 from asgiref.sync import async_to_sync
 from channels.testing import WebsocketCommunicator
 from content.models import Course, CourseMaterial
-from .models import Achievement, LearningActivity, LearningSession, Progress
+from .models import (Achievement, Cohort, CohortMembership, Concept, Enrollment, Intervention,
+                     LearningActivity, LearningRisk, LearningSession, Performance, Progress,
+                     QuestionConcept)
 from .services import evaluate_achievements, recommendations_for
 from learnwise_backend.asgi import application
 
@@ -62,3 +64,101 @@ class AnalyticsTests(TestCase):
             await communicator.disconnect()
 
         async_to_sync(scenario)()
+
+    def test_legacy_progress_websocket_uses_authenticated_user_not_url_id(self):
+        from rest_framework_simplejwt.tokens import AccessToken
+
+        async def scenario():
+            token = str(AccessToken.for_user(self.user))
+            communicator = WebsocketCommunicator(
+                application, f"/ws/progress/{self.other.pk}/?token={token}"
+            )
+            connected, _ = await communicator.connect()
+            self.assertTrue(connected)
+            self.assertEqual((await communicator.receive_json_from())["type"], "connected")
+            await communicator.disconnect()
+
+        async_to_sync(scenario)()
+
+    def test_indicators_explain_persisted_values(self):
+        Progress.objects.create(user=self.user, course=self.course, completion_percentage=40)
+        Performance.objects.create(user=self.user, course=self.course, average_score=75, quiz_count=2)
+        response = self.client.get(reverse("student-indicators"))
+        self.assertEqual(response.status_code, 200)
+        item = response.data["courses"][0]
+        self.assertEqual(item["average_score"]["value"], 75)
+        self.assertEqual(item["average_score"]["observations"], 2)
+        self.assertIn("analytics.Performance", item["average_score"]["sources"])
+
+    def test_weaknesses_use_mapped_real_answers(self):
+        from assessment.models import Answer, Question, Quiz, QuizAttempt
+        quiz = Quiz.objects.create(title="Quiz Django", description="", difficulty="easy")
+        question = Question.objects.create(quiz=quiz, text="ORM", type="qcm", difficulty="easy")
+        concept = Concept.objects.create(course=self.course, code="orm", title="Django ORM")
+        QuestionConcept.objects.create(question_id=question.pk, concept=concept)
+        for correct in (False, True):
+            attempt = QuizAttempt.objects.create(user=self.user, quiz=quiz)
+            Answer.objects.create(attempt=attempt, question=question, is_correct=correct)
+        response = self.client.get(reverse("student-weaknesses"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["concepts"][0]["answers"], 2)
+        self.assertEqual(response.data["concepts"][0]["error_rate"], 50.0)
+
+    def test_teacher_can_compare_declared_cohort(self):
+        from assessment.models import Evaluation, Quiz, QuizAttempt
+        teacher = get_user_model().objects.create_user(username="teacher", email="teacher@example.com",
+                                                       password="secret", role="professeur")
+        cohort = Cohort.objects.create(name="Classe A", subject="Django", course=self.course)
+        CohortMembership.objects.create(cohort=cohort, user=self.user)
+        Performance.objects.create(user=self.user, course=self.course, average_score=80, quiz_count=1)
+        quiz = Quiz.objects.create(title="Évaluation ORM", description="", difficulty="easy")
+        attempt = QuizAttempt.objects.create(user=self.user, quiz=quiz)
+        Evaluation.objects.create(attempt=attempt, score=80, feedback="")
+        self.client.force_authenticate(teacher)
+        response = self.client.get(reverse("cohort-comparison", kwargs={"cohort_id": cohort.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["members"], 1)
+        self.assertEqual(response.data["by_evaluation"][0]["average_score"], 80.0)
+
+    def test_learning_radar_detects_inactivity_with_evidence(self):
+        Enrollment.objects.create(user=self.user, course=self.course)
+        progress = Progress.objects.create(user=self.user, course=self.course, completion_percentage=40)
+        Progress.objects.filter(pk=progress.pk).update(last_activity=timezone.now() - timedelta(days=10))
+        response = self.client.post(reverse("learning-radar"), format="json")
+        self.assertEqual(response.status_code, 200)
+        risk = response.data["risks"][0]
+        self.assertEqual(risk["evidence"][0]["signal"], "inactive_days")
+        self.assertEqual(risk["evidence"][0]["value"], 10)
+        self.assertTrue(risk["interventions"])
+
+    def test_learning_radar_does_not_create_risk_without_signal(self):
+        Enrollment.objects.create(user=self.user, course=self.course)
+        Progress.objects.create(user=self.user, course=self.course, completion_percentage=40)
+        response = self.client.post(reverse("learning-radar"), format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["risks"], [])
+
+    def test_student_can_complete_own_intervention(self):
+        risk = LearningRisk.objects.create(user=self.user, course=self.course, risk_level="medium", risk_score=.4,
+                                           confidence="low", evidence=[])
+        intervention = Intervention.objects.create(risk=risk, action_type="resume_course", title="Reprendre",
+                                                   reason="Inactivité")
+        response = self.client.post(reverse("complete-intervention", kwargs={"intervention_id": intervention.pk}))
+        self.assertEqual(response.status_code, 200)
+        intervention.refresh_from_db()
+        self.assertIsNotNone(intervention.completed_at)
+
+    def test_performance_is_recomputed_from_real_evaluations(self):
+        from assessment.models import Evaluation, Question, Quiz, QuizAttempt
+        quiz = Quiz.objects.create(title="Scores dynamiques", description="", difficulty="easy")
+        question = Question.objects.create(quiz=quiz, text="Notion", type="qcm", difficulty="easy")
+        concept = Concept.objects.create(course=self.course, code="dynamic", title="Notion dynamique")
+        QuestionConcept.objects.create(question_id=question.pk, concept=concept)
+        for score in (60, 80):
+            attempt = QuizAttempt.objects.create(user=self.user, quiz=quiz)
+            Evaluation.objects.create(attempt=attempt, score=score, feedback="")
+        performance = Performance.objects.get(user=self.user, course=self.course)
+        self.assertEqual(performance.average_score, 70)
+        self.assertEqual(performance.quiz_count, 2)
+        response = self.client.get(reverse("performance-list"))
+        self.assertEqual(response.data["average_score"], 70)
