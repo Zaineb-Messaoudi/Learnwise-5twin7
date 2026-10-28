@@ -28,6 +28,7 @@ function renderBackendQuiz() {
 
 describe('backend assessment attempt', () => {
   beforeEach(() => {
+    jest.clearAllMocks(); // sinon, les appels d'un test restent visibles dans le suivant
     window.sessionStorage.clear();
     quizzesApi.detail.mockResolvedValue({ id: 'quiz-1', title: 'Course check-in', questions: [{ id: 'question-1', text: 'Select the correct answer', choices: [{ id: 'choice-a', text: 'Correct option' }, { id: 'choice-b', text: 'Other option' }] }] });
     quizzesApi.startAttempt.mockResolvedValue({ id: 'attempt-1', answers: {} });
@@ -46,5 +47,48 @@ describe('backend assessment attempt', () => {
     await waitFor(() => expect(quizzesApi.saveAttempt).toHaveBeenCalledWith('quiz-1', 'attempt-1', { 'question-1': 'choice-a' }));
     expect(quizzesApi.submit).toHaveBeenCalledWith('quiz-1', 'attempt-1', { 'question-1': 'choice-a' });
     expect(screen.getByText('Correct.')).toBeInTheDocument();
+  });
+
+  describe('with the real backend answer map (every question present, null when unanswered)', () => {
+    const twoQuestions = {
+      id: 'quiz-1',
+      title: 'Course check-in',
+      questions: [
+        { id: 'question-1', text: 'First question', choices: [{ id: 'choice-a', text: 'Correct option' }, { id: 'choice-b', text: 'Other option' }] },
+        { id: 'question-2', text: 'Second question', choices: [{ id: 'choice-c', text: 'Third option' }, { id: 'choice-d', text: 'Fourth option' }] },
+      ],
+    };
+
+    it('does not count unanswered questions (null) as answered, and does not autosave an empty attempt', async () => {
+      quizzesApi.detail.mockResolvedValue(twoQuestions);
+      quizzesApi.startAttempt.mockResolvedValue({ id: 'attempt-1', answers: { 'question-1': null, 'question-2': null } });
+      const user = userEvent.setup();
+      renderBackendQuiz();
+      expect(await screen.findByText('0 of 2 answered')).toBeInTheDocument();
+      await new Promise(resolve => setTimeout(resolve, 700)); // plus long que le délai d'enregistrement automatique (500 ms)
+      expect(quizzesApi.saveAttempt).not.toHaveBeenCalled();
+
+      await user.click(screen.getByLabelText('Correct option'));
+      expect(screen.getByText('1 of 2 answered')).toBeInTheDocument();
+      await waitFor(() => expect(quizzesApi.saveAttempt).toHaveBeenCalledWith('quiz-1', 'attempt-1', { 'question-1': 'choice-a', 'question-2': null }));
+    });
+
+    it('counts only the saved answers when an attempt is resumed', async () => {
+      quizzesApi.detail.mockResolvedValue(twoQuestions);
+      quizzesApi.startAttempt.mockResolvedValue({ id: 'attempt-1', answers: { 'question-1': 'choice-a', 'question-2': null } });
+      renderBackendQuiz();
+      expect(await screen.findByText('1 of 2 answered')).toBeInTheDocument();
+    });
+
+    it('warns about unanswered questions before submitting', async () => {
+      quizzesApi.detail.mockResolvedValue(twoQuestions);
+      quizzesApi.startAttempt.mockResolvedValue({ id: 'attempt-1', answers: { 'question-1': null, 'question-2': null } });
+      const user = userEvent.setup();
+      renderBackendQuiz();
+      await screen.findByText('0 of 2 answered');
+      await user.click(screen.getByRole('button', { name: /Next question/ })); // "Submit quiz" n'apparaît qu'à la dernière question
+      await user.click(screen.getByRole('button', { name: 'Submit quiz' }));
+      expect(screen.getByText(/2 questions are unanswered/)).toBeInTheDocument();
+    });
   });
 });
