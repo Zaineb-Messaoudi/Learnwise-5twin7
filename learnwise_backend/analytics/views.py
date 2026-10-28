@@ -21,7 +21,16 @@ class OwnedQuerysetMixin:
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.filter(user=self.request.user) if self.request.user.role == "etudiant" else queryset
+        user = self.request.user
+        if user.role == "etudiant":
+            return queryset.filter(user=user)
+        if user.role == "professeur":
+            if queryset.model.__name__ == "LearningActivity":
+                return queryset.filter(session__course__owner=user)
+            return queryset.filter(course__owner=user) if hasattr(queryset.model, "course") else queryset.none()
+        if user.role not in ("admin", "teacher") and not user.is_superuser:
+            return queryset.none()
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -89,8 +98,11 @@ class ProgressViewSet(OwnedQuerysetMixin, viewsets.ReadOnlyModelViewSet):
         return queryset.filter(course_id=self.request.query_params["course"]) if self.request.query_params.get("course") else queryset
 
     def retrieve(self, request, pk=None):
-        obj = self.get_queryset().filter(course_id=pk).first()
-        if obj is None:
+        if request.user.role == "etudiant":
+            obj = self.get_queryset().filter(course_id=pk).first()
+            if obj is None:
+                obj = self.get_object()
+        else:
             obj = self.get_object()
         return Response(self.get_serializer(obj).data)
 
@@ -115,7 +127,7 @@ class AchievementViewSet(OwnedQuerysetMixin, viewsets.ReadOnlyModelViewSet):
 def _range_days(request):
     try:
         return min(max(int(request.query_params.get("range", "30d").rstrip("d")), 1), 365)
-    except ValueError:
+    except (ValueError, TypeError, OverflowError):
         return 30
 
 
@@ -134,8 +146,8 @@ def recommendations(request):
 @api_view(["GET"])
 def teacher_overview(request):
     try:
-        range_days = int(request.query_params.get("range", "30"))
-    except (ValueError, TypeError):
+        range_days = _range_days(request)
+    except (ValueError, TypeError, OverflowError):
         return Response({"detail": "Invalid range parameter."}, status=status.HTTP_400_BAD_REQUEST)
     since = timezone.now() - timedelta(days=range_days)
     user = request.user
@@ -154,8 +166,8 @@ def admin_overview(request):
     if not (request.user.is_superuser or request.user.role == "admin"):
         return Response({"detail": "Non autorisé."}, status=status.HTTP_403_FORBIDDEN)
     try:
-        range_days = int(request.query_params.get("range", "30"))
-    except (ValueError, TypeError):
+        range_days = _range_days(request)
+    except (ValueError, TypeError, OverflowError):
         return Response({"detail": "Invalid range parameter."}, status=status.HTTP_400_BAD_REQUEST)
     User = get_user_model()
     since = timezone.now() - timedelta(days=range_days)

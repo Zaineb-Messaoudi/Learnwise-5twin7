@@ -13,13 +13,14 @@ from types import SimpleNamespace
 from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from content.models import Course, CourseMaterial, Summary, Transcription
+from content.models import Course, Chapter, CourseMaterial, Summary, Transcription
 
 from . import ai_client, generation
 
@@ -61,7 +62,7 @@ def quiz_payload(course, **overrides):
 @override_settings(PASSWORD_HASHERS=FAST_HASHER)
 class QuizApiTests(APITestCase):
     def setUp(self):
-        self.course = Course.objects.create(title='Anglais', description='d', level='L1', language='fr')
+        self.course = Course.objects.create(title='Anglais', description='d', level='L1', language='fr', status='published')
         self.teacher = make_user('prof@x.com', 'professeur')
         self.other_teacher = make_user('prof2@x.com', 'professeur')
         self.student = make_user('stud@x.com', 'etudiant')
@@ -230,7 +231,7 @@ class QuizApiTests(APITestCase):
 @override_settings(PASSWORD_HASHERS=FAST_HASHER)
 class AttemptApiTests(APITestCase):
     def setUp(self):
-        self.course = Course.objects.create(title='Anglais', description='d', level='L1', language='fr')
+        self.course = Course.objects.create(title='Anglais', description='d', level='L1', language='fr', status='published')
         self.teacher = make_user('prof@x.com', 'professeur')
         self.student = make_user('stud@x.com', 'etudiant')
         self.other_student = make_user('stud2@x.com', 'etudiant')
@@ -471,8 +472,8 @@ def exercise_payload(course, **overrides):
 @override_settings(PASSWORD_HASHERS=FAST_HASHER)
 class ExerciseApiTests(APITestCase):
     def setUp(self):
-        self.course = Course.objects.create(title='Anglais', description='d', level='L1', language='fr')
-        self.other_course = Course.objects.create(title='Maths', description='d', level='L1', language='fr')
+        self.course = Course.objects.create(title='Anglais', description='d', level='L1', language='fr', status='published')
+        self.other_course = Course.objects.create(title='Maths', description='d', level='L1', language='fr', status='published')
         self.teacher = make_user('prof@x.com', 'professeur')
         self.other_teacher = make_user('prof2@x.com', 'professeur')
         self.student = make_user('stud@x.com', 'etudiant')
@@ -712,8 +713,8 @@ class ExerciseApiTests(APITestCase):
 @override_settings(PASSWORD_HASHERS=FAST_HASHER)
 class CourseFilterTests(APITestCase):
     def setUp(self):
-        self.course_a = Course.objects.create(title='Anglais', description='d', level='L1', language='fr')
-        self.course_b = Course.objects.create(title='Maths', description='d', level='L1', language='fr')
+        self.course_a = Course.objects.create(title='Anglais', description='d', level='L1', language='fr', status='published')
+        self.course_b = Course.objects.create(title='Maths', description='d', level='L1', language='fr', status='published')
         self.teacher = make_user('prof@x.com', 'professeur')
         self.student = make_user('stud@x.com', 'etudiant')
         self.client.force_authenticate(self.teacher)
@@ -1215,8 +1216,8 @@ class FakeThread:
 @override_settings(PASSWORD_HASHERS=FAST_HASHER, ASSESSMENT_GENERATION_ASYNC=False)
 class GenerationApiTests(APITestCase):
     def setUp(self):
-        self.course = Course.objects.create(title='IA', description='d', level='L3', language='fr')
-        self.other_course = Course.objects.create(title='Maths', description='d', level='L1', language='fr')
+        self.course = Course.objects.create(title='IA', description='d', level='L3', language='fr', status='published')
+        self.other_course = Course.objects.create(title='Maths', description='d', level='L1', language='fr', status='published')
         self.teacher = make_user('prof@x.com', 'professeur')
         self.other_teacher = make_user('prof2@x.com', 'professeur')
         self.student = make_user('stud@x.com', 'etudiant')
@@ -1242,7 +1243,9 @@ class GenerationApiTests(APITestCase):
 
     def make_material(self, course=None, title='Chapitre 1', transcription=None, summary=None):
         material = CourseMaterial.objects.create(
-            course=course or self.course, title=title, file='x.pdf', material_type='document',
+            course=course or self.course, title=title,
+            file=SimpleUploadedFile("x.pdf", b"%PDF-1.4 fake pdf content", content_type="application/pdf"),
+            material_type='document',
         )
         if transcription:
             Transcription.objects.create(material=material, content=transcription, language='fr')
@@ -1535,3 +1538,381 @@ class CheckAiCommandTests(CleanAiEnvironment, SimpleTestCase):
             with self.assertRaises(CommandError) as caught:
                 self.run_command()
         self.assertEqual(str(caught.exception), ai_client.MSG_BUSY)
+
+
+# ============================================================================
+# Étape 1 : LessonCompletion — traçage de la consultation des supports
+# ============================================================================
+
+@override_settings(PASSWORD_HASHERS=FAST_HASHER)
+class LessonCompletionTests(APITestCase):
+    """L'étudiant marque un support comme complété en le téléchargeant.
+    Ce traçage sert ensuite à bloquer/débloquer les quiz de chapitre et de cours.
+    """
+
+    def setUp(self):
+        self.professor = make_user('prof@x.com', 'professeur')
+        self.student = make_user('stud@x.com', 'etudiant')
+        self.course = Course.objects.create(
+            title='Cours test', description='d', level='L1', language='fr',
+            status='published', owner=self.professor,
+        )
+        self.chapter = Chapter.objects.create(
+            course=self.course, title='Chapitre 1', order=1
+        )
+        self.material = CourseMaterial.objects.create(
+            course=self.course, chapter=self.chapter,
+            title='PDF 1', material_type='document',
+            file=SimpleUploadedFile('test.pdf', b'%PDF-1.4 fake', content_type='application/pdf'),
+        )
+
+    def test_download_creates_lesson_completion_for_student(self):
+        self.client.force_authenticate(self.student)
+        url = f'/api/v1/content/materials/{self.material.id}/download/'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        from content.models import LessonCompletion
+        lc = LessonCompletion.objects.filter(
+            user=self.student, material=self.material
+        ).first()
+        self.assertIsNotNone(lc)
+        self.assertIsNotNone(lc.completed_at)
+
+    def test_download_does_not_create_lesson_completion_for_professor(self):
+        self.client.force_authenticate(self.professor)
+        url = f'/api/v1/content/materials/{self.material.id}/download/'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        from content.models import LessonCompletion
+        self.assertEqual(
+            LessonCompletion.objects.filter(
+                user=self.professor, material=self.material
+            ).count(),
+            0,
+        )
+
+    def test_download_twice_creates_only_one_lesson_completion(self):
+        self.client.force_authenticate(self.student)
+        url = f'/api/v1/content/materials/{self.material.id}/download/'
+        self.client.get(url)
+        self.client.get(url)
+
+        from content.models import LessonCompletion
+        self.assertEqual(
+            LessonCompletion.objects.filter(
+                user=self.student, material=self.material
+            ).count(),
+            1,
+        )
+
+    def test_lesson_completion_str(self):
+        from content.models import LessonCompletion
+        lc = LessonCompletion.objects.create(
+            user=self.student, material=self.material
+        )
+        self.assertEqual(
+            str(lc),
+            f'{self.student.email} completed {self.material.title}',
+        )
+
+
+# ============================================================================
+# Étape 2 : Quiz avec chapitre (chapter_id)
+# ============================================================================
+
+@override_settings(PASSWORD_HASHERS=FAST_HASHER)
+class QuizChapterTests(APITestCase):
+    """Un quiz peut être lié à un chapitre (quiz de fin de chapitre)
+    ou à un cours (quiz de fin de cours, chapter=None).
+    """
+
+    def setUp(self):
+        self.course = Course.objects.create(
+            title='Cours test', description='d', level='L1', language='fr', status='published'
+        )
+        self.chapter1 = Chapter.objects.create(
+            course=self.course, title='Chapitre 1', order=1
+        )
+        self.chapter2 = Chapter.objects.create(
+            course=self.course, title='Chapitre 2', order=2
+        )
+        self.teacher = make_user('prof@x.com', 'professeur')
+        self.student = make_user('stud@x.com', 'etudiant')
+
+    def test_create_quiz_with_chapter(self):
+        self.client.force_authenticate(self.teacher)
+        payload = quiz_payload(self.course, chapter_id=self.chapter1.id)
+        response = self.client.post(BASE, payload, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data['chapter_id'], str(self.chapter1.id))
+        self.assertEqual(response.data['course_id'], str(self.course.id))
+
+    def test_create_quiz_without_chapter_is_course_level(self):
+        self.client.force_authenticate(self.teacher)
+        payload = quiz_payload(self.course)  # pas de chapter_id
+        response = self.client.post(BASE, payload, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertIsNone(response.data['chapter_id'])
+        self.assertEqual(response.data['course_id'], str(self.course.id))
+
+    def test_teacher_cannot_link_quiz_to_chapter_of_another_course(self):
+        other_course = Course.objects.create(
+            title='Autre cours', description='d', level='L1', language='fr'
+        )
+        other_chapter = Chapter.objects.create(
+            course=other_course, title='Chapitre X', order=1
+        )
+        self.client.force_authenticate(self.teacher)
+        payload = quiz_payload(
+            self.course, chapter_id=other_chapter.id
+        )
+        response = self.client.post(BASE, payload, format='json')
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn('chapter_id', response.data['errors'])
+
+    def test_filter_quizzes_by_chapter(self):
+        # Créer un quiz pour chaque chapitre
+        self.client.force_authenticate(self.teacher)
+        q1 = self.client.post(
+            BASE, quiz_payload(self.course, chapter_id=self.chapter1.id),
+            format='json',
+        ).data['id']
+        q2 = self.client.post(
+            BASE, quiz_payload(self.course, chapter_id=self.chapter2.id),
+            format='json',
+        ).data['id']
+        # Quiz de cours (pas de chapitre)
+        q3 = self.client.post(
+            BASE, quiz_payload(self.course), format='json',
+        ).data['id']
+        self.client.post(f'{BASE}{q1}/publish/')
+        self.client.post(f'{BASE}{q2}/publish/')
+        self.client.post(f'{BASE}{q3}/publish/')
+
+        # Filtrer par chapitre 1
+        self.client.force_authenticate(self.student)
+        response = self.client.get(BASE, {'chapter': self.chapter1.id})
+        self.assertEqual(response.status_code, 200, response.data)
+        ids = [q['id'] for q in response.data['results']]
+        self.assertIn(q1, ids)
+        self.assertNotIn(q2, ids)
+        self.assertNotIn(q3, ids)
+
+        # Filtrer par chapitre 2
+        response = self.client.get(BASE, {'chapter': self.chapter2.id})
+        self.assertEqual(response.status_code, 200, response.data)
+        ids = [q['id'] for q in response.data['results']]
+        self.assertIn(q2, ids)
+        self.assertNotIn(q1, ids)
+        self.assertNotIn(q3, ids)
+
+
+# ============================================================================
+# Étape 3 : Gating — un étudiant ne peut démarrer un quiz que si tous les
+#            matériaux du chapitre (ou du cours) sont complétés
+# ============================================================================
+
+@override_settings(PASSWORD_HASHERS=FAST_HASHER)
+class QuizGatingTests(APITestCase):
+    """L'étudiant doit compléter tous les supports avant de passer le quiz."""
+
+    def setUp(self):
+        self.course = Course.objects.create(
+            title='Cours test', description='d', level='L1', language='fr', status='published'
+        )
+        self.chapter = Chapter.objects.create(
+            course=self.course, title='Chapitre 1', order=1
+        )
+        self.mat1 = CourseMaterial.objects.create(
+            course=self.course, chapter=self.chapter,
+            title='Matériau 1', material_type='document'
+        )
+        self.mat2 = CourseMaterial.objects.create(
+            course=self.course, chapter=self.chapter,
+            title='Matériau 2', material_type='video'
+        )
+        self.student = make_user('stud@x.com', 'etudiant')
+        self.teacher = make_user('prof@x.com', 'professeur')
+
+        # Créer et publier un quiz de chapitre
+        self.client.force_authenticate(self.teacher)
+        self.quiz_id = self.client.post(
+            BASE, quiz_payload(self.course, chapter_id=self.chapter.id),
+            format='json',
+        ).data['id']
+        self.client.post(f'{BASE}{self.quiz_id}/publish/')
+        self.client.force_authenticate(None)
+
+    def _start_attempt(self, user=None):
+        self.client.force_authenticate(user or self.student)
+        return self.client.post(f'{BASE}{self.quiz_id}/attempts/')
+
+    def test_cannot_start_quiz_without_completing_materials(self):
+        response = self._start_attempt()
+        self.assertEqual(response.status_code, 403, response.data)
+        self.assertIn('missing_materials', response.data)
+        self.assertEqual(len(response.data['missing_materials']), 2)
+
+    def test_can_start_quiz_after_completing_all_materials(self):
+        self.client.force_authenticate(self.student)
+        from content.models import LessonCompletion
+        for mat in (self.mat1, self.mat2):
+            LessonCompletion.objects.create(user=self.student, material=mat)
+        response = self._start_attempt()
+        self.assertEqual(response.status_code, 201, response.data)
+
+    def test_cannot_start_quiz_if_one_material_missing(self):
+        self.client.force_authenticate(self.student)
+        from content.models import LessonCompletion
+        LessonCompletion.objects.create(user=self.student, material=self.mat1)
+        # mat2 pas complété
+        response = self._start_attempt()
+        self.assertEqual(response.status_code, 403, response.data)
+        self.assertIn('Matériau 2', response.data['missing_materials'])
+
+    def test_other_student_sees_own_missing_materials_only(self):
+        other = make_user('stud2@x.com', 'etudiant')
+        from content.models import LessonCompletion
+        LessonCompletion.objects.create(user=self.student, material=self.mat1)
+        # self.student a complété mat1, mais other n'a complété aucun
+        response = self._start_attempt(user=other)
+        self.assertEqual(response.status_code, 403, response.data)
+        self.assertEqual(len(response.data['missing_materials']), 2)
+
+
+# ============================================================================
+# Étape 4 : Badges — décernés après réussite d'un quiz de fin de cours
+# ============================================================================
+
+@override_settings(PASSWORD_HASHERS=FAST_HASHER)
+class QuizBadgeTests(APITestCase):
+    """Un badge est décerné quand un étudiant réussit le quiz de fin de cours
+    après avoir complété tous les supports du cours."""
+
+    def setUp(self):
+        self.professor = make_user('prof@x.com', 'professeur')
+        self.student = make_user('stud@x.com', 'etudiant')
+        self.course = Course.objects.create(
+            title='Cours test', description='d', level='L1', language='fr',
+            status='published', owner=self.professor,
+        )
+        self.chapter = Chapter.objects.create(
+            course=self.course, title='Chapitre 1', order=1
+        )
+        # Deux matériaux dans le chapitre
+        self.mat1 = CourseMaterial.objects.create(
+            course=self.course, chapter=self.chapter,
+            title='Matériau 1', material_type='document',
+            file=SimpleUploadedFile('m1.pdf', b'%PDF-1.4 fake', content_type='application/pdf'),
+        )
+        self.mat2 = CourseMaterial.objects.create(
+            course=self.course, chapter=self.chapter,
+            title='Matériau 2', material_type='video',
+            file=SimpleUploadedFile('m2.pdf', b'%PDF-1.4 fake', content_type='application/pdf'),
+        )
+        # Quiz de fin de cours (chapter=None)
+        self.client.force_authenticate(self.professor)
+        self.quiz_id = self.client.post(
+            BASE, quiz_payload(self.course),  # pas de chapter_id => quiz de cours
+            format='json',
+        ).data['id']
+        self.client.post(f'{BASE}{self.quiz_id}/publish/')
+        self.client.force_authenticate(None)
+
+    def _complete_all_materials(self):
+        from content.models import LessonCompletion
+        for mat in (self.mat1, self.mat2):
+            LessonCompletion.objects.create(user=self.student, material=mat)
+
+    def _start_and_submit_attempt(self, score_ratio=1.0):
+        """Démarre une tentative, répond à toutes les questions correctement
+        (ou avec un ratio donné), puis soumet."""
+        self.client.force_authenticate(self.student)
+        # Démarrer la tentative
+        resp = self.client.post(f'{BASE}{self.quiz_id}/attempts/')
+        self.assertEqual(resp.status_code, 201, resp.data)
+        attempt_id = resp.data['id']
+
+        # Récupérer le quiz pour connaître les questions
+        quiz_resp = self.client.get(f'{BASE}{self.quiz_id}/')
+        self.assertEqual(quiz_resp.status_code, 200)
+        questions = quiz_resp.data['questions']
+
+        # Répondre correctement à un ratio donné des questions
+        answers = {}
+        total = len(questions)
+        correct_count = int(total * score_ratio)
+        for i, q in enumerate(questions):
+            choice = q['choices'][0] if q['choices'] else None  # premier choix = correct par construction
+            answers[str(q['id'])] = str(choice['id']) if choice else None
+            if i >= correct_count:
+                # Pour les questions au-delà du ratio, répondre incorrectement (2e choix si existe)
+                if len(q['choices']) > 1:
+                    answers[str(q['id'])] = str(q['choices'][1]['id'])
+
+        # Soumettre
+        submit_resp = self.client.post(
+            f'{BASE}{self.quiz_id}/attempts/{attempt_id}/submit/',
+            {'answers': answers}, format='json',
+        )
+        self.assertEqual(submit_resp.status_code, 200, submit_resp.data)
+        return submit_resp.data
+
+    def test_badge_awarded_on_course_quiz_success(self):
+        """Badge décerné quand l'étudiant réussit le quiz de cours avec tous les matériaux complétés."""
+        self._complete_all_materials()
+        evaluation = self._start_and_submit_attempt(score_ratio=1.0)
+        self.assertIn('badge', evaluation)
+        self.assertEqual(evaluation['badge']['name'], f'{self.course.title} — Complété')
+        from content.models import Badge
+        self.assertTrue(Badge.objects.filter(course=self.course, user=self.student).exists())
+
+    def test_no_badge_when_score_too_low(self):
+        """Pas de badge si le score est trop bas (< 80%)."""
+        self._complete_all_materials()
+        evaluation = self._start_and_submit_attempt(score_ratio=0.5)
+        self.assertNotIn('badge', evaluation)
+        from content.models import Badge
+        self.assertFalse(Badge.objects.filter(course=self.course, user=self.student).exists())
+
+    def test_no_duplicate_badge_on_retake(self):
+        """Pas de badge dupliqué si l'étudiant repasse le quiz."""
+        self._complete_all_materials()
+        # Première soumission réussie
+        eval1 = self._start_and_submit_attempt(score_ratio=1.0)
+        self.assertIn('badge', eval1)
+        from content.models import Badge
+        self.assertEqual(Badge.objects.filter(course=self.course, user=self.student).count(), 1)
+        # Deuxième soumission réussie
+        eval2 = self._start_and_submit_attempt(score_ratio=1.0)
+        self.assertIn('badge', eval2)
+        self.assertEqual(Badge.objects.filter(course=self.course, user=self.student).count(), 1)
+
+    def test_chapter_quiz_does_not_award_badge(self):
+        """Un quiz de chapitre ne décrète jamais de badge (seuls les quiz de cours le font)."""
+        self._complete_all_materials()
+        # Créer un quiz de chapitre
+        self.client.force_authenticate(self.professor)
+        chap_quiz_id = self.client.post(
+            BASE, quiz_payload(self.course, chapter_id=self.chapter.id),
+            format='json',
+        ).data['id']
+        self.client.post(f'{BASE}{chap_quiz_id}/publish/')
+        self.client.force_authenticate(self.student)
+        # Démarrer et soumettre le quiz de chapitre
+        resp = self.client.post(f'{BASE}{chap_quiz_id}/attempts/')
+        attempt_id = resp.data['id']
+        quiz_resp = self.client.get(f'{BASE}{chap_quiz_id}/')
+        questions = quiz_resp.data['questions']
+        answers = {str(q['id']): str(q['choices'][0]['id']) for q in questions if q['choices']}
+        submit_resp = self.client.post(
+            f'{BASE}{chap_quiz_id}/attempts/{attempt_id}/submit/',
+            {'answers': answers}, format='json',
+        )
+        self.assertEqual(submit_resp.status_code, 200)
+        evaluation = submit_resp.data
+        self.assertNotIn('badge', evaluation)
+        from content.models import Badge
+        self.assertFalse(Badge.objects.filter(course=self.course, user=self.student).exists())

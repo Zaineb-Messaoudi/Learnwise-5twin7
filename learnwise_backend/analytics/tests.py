@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from asgiref.sync import async_to_sync
 from channels.testing import WebsocketCommunicator
-from content.models import Course, CourseMaterial
+from content.models import Course, CourseMaterial, LessonCompletion
 from .models import Achievement, LearningActivity, LearningSession, Progress
 from .services import evaluate_achievements, recommendations_for
 from learnwise_backend.asgi import application
@@ -16,7 +16,7 @@ class AnalyticsTests(TransactionTestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="student", email="student@example.com", password="secret", role="etudiant")
         self.other = get_user_model().objects.create_user(username="other", email="other@example.com", password="secret", role="etudiant")
-        self.course = Course.objects.create(title="Django", description="API", level="beginner", language="fr")
+        self.course = Course.objects.create(title="Django", description="API", level="beginner", language="fr", status="published")
         CourseMaterial.objects.create(
             course=self.course, title="Intro",
             file=SimpleUploadedFile("test.pdf", b"%PDF-1.4 fake pdf content", content_type="application/pdf"),
@@ -32,11 +32,8 @@ class AnalyticsTests(TransactionTestCase):
         self.assertEqual(self.client.get(reverse("enrollment-list")).data["count"], 0)
     def test_completed_activity_updates_progress_and_dashboard(self):
         session = LearningSession.objects.create(user=self.user, course=self.course)
-        LearningActivity.objects.create(session=session, activity_type="lesson_completed", completed_at=timezone.now())
-        # Manually trigger progress update (signal removed for test stability)
-        from .services import record_activity_effects
-        activity = LearningActivity.objects.filter(session=session).first()
-        record_activity_effects(activity)
+        material = self.course.materials.first()
+        LessonCompletion.objects.create(user=self.user, material=material)
         self.assertEqual(Progress.objects.get(user=self.user, course=self.course).completion_percentage, 100)
         response = self.client.get(reverse("analytics-dashboard"))
         self.assertEqual(response.status_code, 200)

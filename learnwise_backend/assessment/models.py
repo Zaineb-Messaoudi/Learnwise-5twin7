@@ -46,6 +46,13 @@ class Quiz(models.Model):
         'content.Course', on_delete=models.CASCADE,
         related_name='quizzes', null=True, blank=True,
     )
+    # chapter=null : quiz de fin de cours (course-level).
+    # chapter=X : quiz de fin de chapitre (chapter-level), course=X.course implicitement.
+    chapter = models.ForeignKey(
+        'content.Chapter', on_delete=models.CASCADE,
+        related_name='quizzes', null=True, blank=True,
+        help_text='Si défini, ce quiz est un quiz de fin de chapitre. Sinon, c\'est un quiz de fin de cours.',
+    )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     difficulty = models.CharField(

@@ -1,4 +1,4 @@
-import { apiRequest } from './client';
+import { apiRequest, apiClient } from './client';
 export const materialsApi = {
     list: (courseId) => apiRequest(`/content/materials/${courseId ? `?course=${encodeURIComponent(courseId)}` : ''}`),
     detail: (id) => apiRequest(`/content/materials/${id}/`),
@@ -14,10 +14,10 @@ export const materialsApi = {
     processingStatus: (id) => apiRequest(`/content/materials/${id}/processing/`),
     retryProcessing: (id) => apiRequest(`/content/materials/${id}/retry/`, { method: 'POST' }),
     transcription: (id) => apiRequest(`/content/materials/${id}/transcription/`),
-    updateTranscription: (id, text) => apiRequest(`/content/materials/${id}/transcription/`, { method: 'PATCH', body: { text } }),
+    updateTranscription: (id, text) => apiRequest(`/content/materials/${id}/transcription/`, { method: 'PATCH', body: { content: text } }),
     summary: (id) => apiRequest(`/content/materials/${id}/summary/`),
-    updateSummary: (id, text) => apiRequest(`/content/materials/${id}/summary/`, { method: 'PATCH', body: { text } }),
-    regenerateSummary: (id) => apiRequest(`/content/materials/${id}/summary/regenerate/`, { method: 'POST' }),
+    updateSummary: (id, text) => apiRequest(`/content/materials/${id}/summary/`, { method: 'PATCH', body: { content: text } }),
+    regenerateSummary: (id) => apiRequest(`/content/materials/${id}/regenerate_summary/`, { method: 'POST' }),
 
     // New thumbnail and chapter endpoints
     generateThumbnail: (id) => apiRequest(`/content/materials/${id}/generate_thumbnail/`, { method: 'POST' }),
@@ -27,4 +27,14 @@ export const materialsApi = {
     createChapter: (data) => apiRequest(`/content/chapters/`, { method: 'POST', body: data }),
     updateChapter: (id, data) => apiRequest(`/content/chapters/${id}/`, { method: 'PATCH', body: data }),
     deleteChapter: (id) => apiRequest(`/content/chapters/${id}/`, { method: 'DELETE' }),
+
+    // Download a material (also marks it as completed for the student, used for quiz gating)
+    download: async (id) => {
+      const response = await apiClient.get(`/content/materials/${id}/download/`, { responseType: 'blob' });
+      return response;
+    },
+
+    // Lesson completions for quiz gating
+    listCompletions: () => apiRequest('/content/lesson-completions/'),
+    complete: (id) => apiRequest(`/content/materials/${id}/complete/`, { method: 'POST' }),
 };

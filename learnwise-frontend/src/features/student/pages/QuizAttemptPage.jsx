@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowLeft, ArrowRight, Check } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '../../../layouts/AppShell';
 import { Button, PageHeader, ProgressBar } from '../../../components/shared/Primitives';
@@ -44,6 +44,8 @@ export function QuizAttemptPage() {
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [locked, setLocked] = useState(false);
+  const [missingMaterials, setMissingMaterials] = useState([]);
   const saveTimer = useRef(null);
   const quizQuery = useQuery({
     queryKey: ['assessment', 'quiz', id],
@@ -52,9 +54,22 @@ export function QuizAttemptPage() {
   });
   const attemptQuery = useQuery({
     queryKey: ['assessment', 'attempt', id],
-    queryFn: async () => responseData(await quizzesApi.startAttempt(id)),
+    queryFn: async () => {
+      try {
+        const response = await quizzesApi.startAttempt(id);
+        return responseData(response);
+      } catch (cause) {
+        if (cause.response?.status === 403 && cause.response?.data?.missing_materials) {
+          setLocked(true);
+          setMissingMaterials(cause.response.data.missing_materials);
+          return null;
+        }
+        throw cause;
+      }
+    },
     enabled: isBackendApiEnabled && Boolean(quizQuery.data),
     staleTime: Infinity,
+    retry: false,
   });
   const attempt = attemptQuery.data;
   const questions = useMemo(() => isBackendApiEnabled
@@ -130,6 +145,23 @@ export function QuizAttemptPage() {
 
   if (isBackendApiEnabled && (quizQuery.isLoading || attemptQuery.isLoading)) {
     return <AppShell><PageHeader eyebrow="Quiz attempt" title="Loading your quiz"/><LoadingState label="Preparing your assessment attempt"/></AppShell>;
+  }
+  if (locked) {
+    return (
+      <AppShell>
+        <PageHeader eyebrow="Quiz attempt" title="Quiz locked" description="Complete the chapter materials before attempting this quiz." />
+        <section className="chart-card detail-table">
+          <div className="list-card-icon purple"><AlertCircle size={20} /></div>
+          <h2>Complete the chapter materials first</h2>
+          <p className="quiz-helper">You must download and review all chapter materials before this quiz becomes available.</p>
+          <div className="command-meta">
+            <span>Missing materials:</span>
+            <ul className="missing-list">{missingMaterials.map((m, i) => <li key={i}>{m}</li>)}</ul>
+          </div>
+          <Link className="button button-secondary" to={`/student/courses/${quizQuery.data?.course_id}`}>Go to course materials <ArrowRight size={15} /></Link>
+        </section>
+      </AppShell>
+    );
   }
   if (isBackendApiEnabled && (quizQuery.isError || attemptQuery.isError || !questions.length || !item)) {
     return <AppShell><PageHeader eyebrow="Quiz attempt" title="This quiz could not be opened."/><ErrorState message={quizQuery.error?.message || attemptQuery.error?.message || 'The quiz has no available questions.'} action={<Button onClick={() => { void quizQuery.refetch(); void attemptQuery.refetch(); }}>Retry</Button>}/></AppShell>;

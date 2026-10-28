@@ -125,7 +125,7 @@ export function CourseFilters({
       </div>
 
       <div className="course-filters-actions">
-        <button className="btn-course-primary" onClick={() => onApplyFilters()}>
+        <button className="apply-button" onClick={() => onApplyFilters()}>
           Apply Filters
         </button>
       </div>

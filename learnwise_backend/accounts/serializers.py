@@ -402,6 +402,12 @@ class EmailChangeRequestSerializer(serializers.Serializer):
     new_email = serializers.EmailField()
     current_password = serializers.CharField(required=False, write_only=True)
 
+    def validate(self, attrs):
+        user = self.context.get('request').user if self.context.get('request') else None
+        if user and user.has_usable_password() and not user.check_password(attrs.get('current_password', '')):
+            raise serializers.ValidationError({'current_password': 'Current password is incorrect.'})
+        return attrs
+
     def validate_new_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError('An account with this email already exists.')

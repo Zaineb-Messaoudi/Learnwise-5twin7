@@ -57,11 +57,6 @@ class Course(models.Model):
     def save(self, *args, **kwargs):
         if not self.pk:
             self.created_at = timezone.now()
-            # Auto-publish if scheduled_publish_at is in the past (new course only;
-            # updates must not override a manual status change such as reject/rollback)
-            if self.scheduled_publish_at and timezone.now() >= self.scheduled_publish_at:
-                if self.status == 'draft':
-                    self.status = 'published'
         self.updated_at = timezone.now()
         # Auto-calculate estimated reading minutes
         self.estimated_reading_minutes = self._calculate_reading_time()
@@ -408,9 +403,9 @@ def check_course_completion(course, user):
     """Check if a user has completed all materials in a course.
     
     A course is considered complete when the user has viewed/accessed all
-    materials associated with the course (including materials in chapters).
+    materials associated with the course (including those in chapters).
     """
-    from content.models import CourseMaterial
+    from content.models import CourseMaterial, LessonCompletion
     
     # Get all materials in the course (including those in chapters)
     all_materials = CourseMaterial.objects.filter(
@@ -421,16 +416,13 @@ def check_course_completion(course, user):
     if total_materials == 0:
         return False, 0
     
-    # Check user's progress - materials they've accessed via ActivityLog
-    from accounts.models import ActivityLog
-    accessed_materials = ActivityLog.objects.filter(
-        user=user,
-        resource_type='material',
-        resource_id__in=[str(m.id) for m in all_materials]
-    ).values('resource_id').distinct()
-    
-    accessed_ids = set(s['resource_id'] for s in accessed_materials)
-    completed_count = len(accessed_ids)
+    # Check user's progress via LessonCompletion (created when materials are downloaded)
+    completed_ids = set(
+        LessonCompletion.objects.filter(
+            user=user, material__in=all_materials
+        ).values_list('material_id', flat=True)
+    )
+    completed_count = len(completed_ids)
     
     is_complete = completed_count >= total_materials
     
@@ -499,3 +491,39 @@ The Learnwise Team
                     )
                 except Exception:
                     logger.exception('Failed to send course reminder to %s', user.email)
+
+
+class LessonCompletion(models.Model):
+    """Tracks that a user has viewed/accessed a specific course material.
+
+    This is the linchpin for gating quizzes behind content completion:
+    a student can only start a chapter/course quiz once they have
+    completed all materials in that chapter/course.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='lesson_completions',
+        help_text='The user who completed this material.',
+    )
+    material = models.ForeignKey(
+        'content.CourseMaterial',
+        on_delete=models.CASCADE,
+        related_name='completions',
+        help_text='The material that was completed.',
+    )
+    completed_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text='When the user completed this material.',
+    )
+
+    class Meta:
+        unique_together = ['user', 'material']
+        indexes = [
+            models.Index(fields=['user', 'material']),
+            models.Index(fields=['user', 'completed_at']),
+        ]
+        ordering = ['-completed_at']
+
+    def __str__(self):
+        return f'{self.user.email} completed {self.material.title}'

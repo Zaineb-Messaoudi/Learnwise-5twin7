@@ -1,10 +1,9 @@
 import json
 import base64
+from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.http import Http404
 from django.utils import timezone
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
@@ -30,27 +29,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
         self.course_id = self.scope['url_route']['kwargs']['course_id']
         self.group_name = f'course_presence_{self.course_id}'
 
-        # Authenticate via JWT token from query string
-        jwt_auth = JWTAuthentication()
-        query_string = self.scope.get('query_string', b'').decode()
-        query_params = {}
-        if query_string:
-            for part in query_string.split('&'):
-                if '=' in part:
-                    k, v = part.split('=', 1)
-                    query_params[k] = v
-        token = query_params.get('token')
-        if token:
-            try:
-                validated_token = jwt_auth.get_validated_token(token)
-                user_id = validated_token['user_id']
-                get_user = sync_to_async(User.objects.get)
-                user = await get_user(user_id)
-                self.scope['user'] = user
-            except (InvalidToken, TokenError, User.DoesNotExist):
-                pass
-
-        self.user = self.scope['user']
+        self.user = self.scope.get('user')
 
         if not self.user or not self.user.is_authenticated:
             await self.close(code=4001)
@@ -63,6 +42,9 @@ class PresenceConsumer(AsyncWebsocketConsumer):
             await self.close(code=4004)
             return
 
+        if self.user.role == 'etudiant' and self.course.status != 'published':
+            await self.close(code=4003)
+            return
         # Join room group
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
@@ -131,13 +113,12 @@ class PresenceConsumer(AsyncWebsocketConsumer):
 
     @sync_to_async
     def _get_presence_list(self):
-        presences = CoursePresence.objects.filter(
-            course=self.course
-        ).select_related('user').order_by('-last_seen')
+        CoursePresence.objects.filter(last_seen__lt=timezone.now() - timedelta(minutes=2)).delete()
+        presences = CoursePresence.objects.filter(course=self.course).select_related('user').order_by('-last_seen')
         return [
             {
                 'user_id': p.user.id,
-                'email': p.user.email,
+                'email': None,
                 'name': p.user.name if hasattr(p.user, 'name') else f'{p.user.first_name} {p.user.last_name}'.strip() or p.user.email,
                 'role': p.user.role,
                 'joined_at': p.joined_at.isoformat(),
@@ -165,26 +146,7 @@ class ProgressConsumer(AsyncWebsocketConsumer):
         self.user_id = self.scope['url_route']['kwargs']['user_id']
         self.group_name = f'progress_{self.user_id}'
 
-        jwt_auth = JWTAuthentication()
-        query_string = self.scope.get('query_string', b'').decode()
-        query_params = {}
-        if query_string:
-            for part in query_string.split('&'):
-                if '=' in part:
-                    k, v = part.split('=', 1)
-                    query_params[k] = v
-        token = query_params.get('token')
-        if token:
-            try:
-                validated_token = jwt_auth.get_validated_token(token)
-                uid = validated_token['user_id']
-                get_user = sync_to_async(User.objects.get)
-                user = await get_user(uid)
-                self.scope['user'] = user
-            except (InvalidToken, TokenError, User.DoesNotExist):
-                pass
-
-        self.user = self.scope['user']
+        self.user = self.scope.get('user')
 
         if not self.user or not self.user.is_authenticated:
             await self.close(code=4001)
@@ -227,26 +189,7 @@ class AssistantConsumer(AsyncWebsocketConsumer):
         self.session_id = self.scope['url_route']['kwargs']['session_id']
         self.group_name = f'assistant_{self.session_id}'
 
-        jwt_auth = JWTAuthentication()
-        query_string = self.scope.get('query_string', b'').decode()
-        query_params = {}
-        if query_string:
-            for part in query_string.split('&'):
-                if '=' in part:
-                    k, v = part.split('=', 1)
-                    query_params[k] = v
-        token = query_params.get('token')
-        if token:
-            try:
-                validated_token = jwt_auth.get_validated_token(token)
-                uid = validated_token['user_id']
-                get_user = sync_to_async(User.objects.get)
-                user = await get_user(uid)
-                self.scope['user'] = user
-            except (InvalidToken, TokenError, User.DoesNotExist):
-                pass
-
-        self.user = self.scope['user']
+        self.user = self.scope.get('user')
 
         if not self.user or not self.user.is_authenticated:
             await self.close(code=4001)
@@ -304,7 +247,7 @@ class AnalyticsConsumer(AsyncWebsocketConsumer):
     """WebSocket for real-time analytics events for a user."""
 
     async def connect(self):
-        self.user = self.scope['user']
+        self.user = self.scope.get('user')
 
         if not self.user or not self.user.is_authenticated:
             await self.close(code=4001)

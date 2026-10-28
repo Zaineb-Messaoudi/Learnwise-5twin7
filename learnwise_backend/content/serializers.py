@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
-from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary, CoursePresence, CourseVersion, CoursePrerequisite
+from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary, CoursePresence, CourseVersion, CoursePrerequisite, LessonCompletion
 
 
 class ChapterSerializer(serializers.ModelSerializer):
@@ -167,3 +167,24 @@ class CoursePrerequisiteSerializer(serializers.ModelSerializer):
         instance.full_clean()  # runs clean() for circular dependency check
         instance.save()
         return instance
+
+
+class LessonCompletionSerializer(serializers.ModelSerializer):
+    """Serializer for a user's completed lesson materials (quiz gating)."""
+    material_id = serializers.SerializerMethodField()
+    material_title = serializers.SerializerMethodField()
+    material_kind = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LessonCompletion
+        fields = ['id', 'material_id', 'material_title', 'material_kind', 'completed_at']
+        read_only_fields = ['id', 'material_id', 'material_title', 'material_kind', 'completed_at']
+
+    def get_material_id(self, obj):
+        return obj.material_id
+
+    def get_material_title(self, obj):
+        return obj.material.title
+
+    def get_material_kind(self, obj):
+        return obj.material.material_type

@@ -1,8 +1,8 @@
 from datetime import timedelta
 from django.db import transaction
-from django.db.models import Avg, Sum
+from django.db.models import Avg, Sum, Count, OuterRef, Subquery
 from django.utils import timezone
-from .models import Achievement, LearningActivity, LearningSession, Performance, Progress
+from .models import Achievement, Enrollment, LearningActivity, LearningSession, Performance, Progress
 
 BADGES = {
     Achievement.Code.FIRST_QUIZ: ("Premier quiz", "Vous avez terminé votre premier quiz."),
@@ -31,13 +31,56 @@ def award(user, code):
         transaction.on_commit(lambda: push_event(user.pk, "achievement.earned", {"id": str(achievement.pk), "title": title}))
     return achievement, created
 
+def ensure_enrollment(user, course):
+    if not user or not user.is_authenticated or user.role != "etudiant" or not course or course.status != "published":
+        return None
+    enrollment, _ = Enrollment.objects.get_or_create(user=user, course=course)
+    Progress.objects.get_or_create(user=user, course=course)
+    Performance.objects.get_or_create(user=user, course=course)
+    return enrollment
+
+def recompute_progress(user, course):
+    if not user or not course:
+        return None
+    total = course.materials.count()
+    completed = course.materials.filter(completions__user=user).distinct().count()
+    percentage = 100 if total == 0 else min(100, completed * 100 / total)
+    progress, _ = Progress.objects.update_or_create(
+        user=user, course=course,
+        defaults={"completion_percentage": percentage, "last_activity": timezone.now()},
+    )
+    enrollment = Enrollment.objects.filter(user=user, course=course).first()
+    if enrollment and percentage >= 100 and enrollment.status == Enrollment.Status.ACTIVE:
+        enrollment.status = Enrollment.Status.COMPLETED
+        enrollment.save(update_fields=("status",))
+    return progress
+
+def recompute_performance(user, course):
+    from assessment.models import Evaluation, ExerciseSubmission
+    latest = Evaluation.objects.filter(
+        attempt__user=user, attempt__quiz__course=course,
+        attempt__quiz_id=OuterRef("attempt__quiz_id"),
+    ).order_by("-created_at", "-pk")
+    evaluations = Evaluation.objects.filter(
+        attempt__user=user, attempt__quiz__course=course,
+    ).filter(pk=Subquery(latest.values("pk")[:1]))
+    scores = list(evaluations.values_list("correct_answers", "total_questions"))
+    percentages = [correct * 100 / total for correct, total in scores if total]
+    exercises = ExerciseSubmission.objects.filter(user=user, exercise__course=course).values("exercise_id").distinct().count()
+    performance, _ = Performance.objects.update_or_create(
+        user=user, course=course,
+        defaults={"average_score": sum(percentages) / len(percentages) if percentages else 0,
+                  "quiz_count": len(scores), "exercise_count": exercises},
+    )
+    return performance
+
 def evaluate_achievements(user):
     earned = []
     if LearningActivity.objects.filter(session__user=user, activity_type=LearningActivity.Type.QUIZ).exists():
         earned.append(award(user, Achievement.Code.FIRST_QUIZ)[0])
     if LearningSession.objects.filter(user=user, ended_at__isnull=False).count() >= 5:
         earned.append(award(user, Achievement.Code.FIVE_SESSIONS)[0])
-    if Progress.objects.filter(user=user, completion_percentage__gte=100).exists():
+    if Progress.objects.filter(user=user, completion_percentage__gte=100).exists() or user.badges_earned.exists():
         earned.append(award(user, Achievement.Code.COURSE_COMPLETE)[0])
     if Performance.objects.filter(user=user, average_score__gte=80, quiz_count__gt=0).exists():
         earned.append(award(user, Achievement.Code.HIGH_SCORE)[0])
@@ -45,22 +88,8 @@ def evaluate_achievements(user):
 
 def record_activity_effects(activity):
     progress, _ = Progress.objects.get_or_create(user=activity.session.user, course=activity.session.course)
-    if activity.activity_type == LearningActivity.Type.LESSON_COMPLETED:
-        total = max(activity.session.course.materials.count(), 1)
-        completed = LearningActivity.objects.filter(
-            session__user=activity.session.user,
-            session__course=activity.session.course,
-            activity_type=LearningActivity.Type.LESSON_COMPLETED,
-        ).values("reference_id").distinct().count()
-        progress.completion_percentage = min(100, completed * 100 / total)
     progress.last_activity = activity.completed_at or activity.started_at
-    progress.save(update_fields=("completion_percentage", "last_activity"))
-    evaluate_achievements(activity.session.user)
-    transaction.on_commit(lambda: push_event(activity.session.user_id, "progress.updated", {
-        "course_id": activity.session.course_id,
-        "completion_percentage": progress.completion_percentage,
-        "last_activity": progress.last_activity.isoformat(),
-    }))
+    progress.save(update_fields=("last_activity",))
 
 def recommendations_for(user):
     now = timezone.now()
@@ -98,6 +127,12 @@ def dashboard_for(user, days=30):
             "difficulty": recommendation["priority"],
             "href": f"/student/courses/{recommendation['course_id']}",
         }
+    today = timezone.localdate()
+    weekly = [
+        {"label": (today - timedelta(days=offset)).isoformat(),
+         "hours": round(daily.get((today - timedelta(days=offset)).isoformat(), 0), 2)}
+        for offset in range(6, -1, -1)
+    ]
     return {
         "data_source": "live",
         "stats": {
@@ -107,7 +142,7 @@ def dashboard_for(user, days=30):
             "achievement_count": Achievement.objects.filter(user=user).count(),
             "courses_enrolled": user.enrollments.filter(status="active").count(),
         },
-        "weekly_activity": [{"label": key, "hours": round(value, 2)} for key, value in sorted(daily.items())],
+        "weekly_activity": weekly,
         "focus_areas": [{"name": p.course.title, "score": round(p.average_score), "trend": "À retravailler"}
                         for p in performances.filter(average_score__lt=70).select_related("course")[:5]],
         "progress": [{"course_id": p.course_id, "course": p.course.title, "percentage": p.completion_percentage}
@@ -122,7 +157,10 @@ def dashboard_for(user, days=30):
 
 def _streak(user):
     dates = set(LearningSession.objects.filter(user=user, ended_at__isnull=False).values_list("started_at__date", flat=True))
-    day, count = timezone.localdate(), 0
+    day = timezone.localdate()
+    if day not in dates:
+        day -= timedelta(days=1)
+    count = 0
     while day in dates:
         count += 1
         day -= timedelta(days=1)

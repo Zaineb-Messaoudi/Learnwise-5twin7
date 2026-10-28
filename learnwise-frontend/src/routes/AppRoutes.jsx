@@ -136,7 +136,7 @@ function WorkspaceRouter({ role }) {
 if (pathname === '/teacher/analytics') return <TeacherAnalyticsPage />;
     if (pathname === '/teacher/profile') return <EducatorProfilePage />;
     if (pathname === '/teacher/security') return <EducatorSecuritySettingsPage />;
-    if (pathname === '/teacher/settings' || pathname === '/teacher/profile') return <SettingsPage role="teacher" />;
+    if (pathname === '/teacher/settings') return <SettingsPage role="teacher" />;
     if (pathname === '/admin/dashboard') return <AdminDashboard />;
   if (pathname === '/admin/users' || pathname === '/admin/students' || pathname === '/admin/teachers') return <AdminUserManagement />;
   if (pathname === '/admin/courses' || pathname === '/admin/quizzes' || pathname === '/admin/exercises') return <AdminContentPage />;

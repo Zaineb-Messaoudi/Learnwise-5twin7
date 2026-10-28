@@ -12,7 +12,7 @@ donc tous les ids en texte ("12" et non 12).
 from django.db import transaction
 from rest_framework import serializers
 
-from content.models import Course, CourseMaterial
+from content.models import Course, CourseMaterial, Chapter, LessonCompletion
 
 from .generation import material_text
 from .models import (
@@ -20,6 +20,26 @@ from .models import (
     GenerationJob, Question, QuestionType, Quiz, QuizAttempt,
 )
 from .permissions import is_admin
+
+
+# ---------------------------------------------------------------------------
+# Lecture : LessonCompletion
+# ---------------------------------------------------------------------------
+class LessonCompletionSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(read_only=True)
+    user_id = serializers.SerializerMethodField()
+    material_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LessonCompletion
+        fields = ['id', 'user_id', 'material_id', 'completed_at']
+        read_only_fields = ['id', 'user_id', 'material_id', 'completed_at']
+
+    def get_user_id(self, obj):
+        return str(obj.user_id) if obj.user_id else None
+
+    def get_material_id(self, obj):
+        return str(obj.material_id) if obj.material_id else None
 
 
 # ---------------------------------------------------------------------------
@@ -62,18 +82,22 @@ class QuestionTeacherSerializer(serializers.ModelSerializer):
 class QuizListSerializer(serializers.ModelSerializer):
     id = serializers.CharField(read_only=True)
     course_id = serializers.SerializerMethodField()
+    chapter_id = serializers.SerializerMethodField()
     author_id = serializers.SerializerMethodField()
     question_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
         fields = [
-            'id', 'course_id', 'title', 'description', 'difficulty', 'status',
+            'id', 'course_id', 'chapter_id', 'title', 'description', 'difficulty', 'status',
             'question_count', 'author_id', 'created_at', 'updated_at', 'published_at',
         ]
 
     def get_course_id(self, obj):
         return str(obj.course_id) if obj.course_id else None
+
+    def get_chapter_id(self, obj):
+        return str(obj.chapter_id) if obj.chapter_id else None
 
     def get_author_id(self, obj):
         return str(obj.created_by_id) if obj.created_by_id else None
@@ -143,11 +167,24 @@ class QuizWriteSerializer(serializers.ModelSerializer):
     course_id = serializers.PrimaryKeyRelatedField(
         source='course', queryset=Course.objects.all(),
     )
+    # chapter_id est facultatif : null = quiz de fin de cours, sinon quiz de fin de chapitre.
+    chapter_id = serializers.PrimaryKeyRelatedField(
+        source='chapter', queryset=Chapter.objects.all(), required=False, allow_null=True,
+    )
     questions = QuestionInputSerializer(many=True, required=False)
 
     class Meta:
         model = Quiz
-        fields = ['course_id', 'title', 'description', 'difficulty', 'questions']
+        fields = ['course_id', 'chapter_id', 'title', 'description', 'difficulty', 'questions']
+
+    def validate(self, attrs):
+        course = attrs.get('course', self.instance.course if self.instance else None)
+        chapter = attrs.get('chapter', self.instance.chapter if self.instance else None)
+        if chapter is not None and course is not None and chapter.course_id != course.id:
+            raise serializers.ValidationError(
+                {'chapter_id': ['Ce chapitre n\'appartient pas à ce cours.']}
+            )
+        return attrs
 
     @transaction.atomic
     def create(self, validated_data):

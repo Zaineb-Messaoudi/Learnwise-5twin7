@@ -10,7 +10,8 @@ export const assistantApi = {
         const body = new FormData();
         body.append('audio', audio, metadata.filename || 'voice-question.webm');
         if (metadata.language) body.append('language', metadata.language);
-        return apiRequest(`/ai/sessions/${sessionId}/voice-questions/`, { method: 'POST', body });
+        body.append('session', sessionId);
+        return apiRequest('/ai/voice-questions/', { method: 'POST', body });
     },
     voiceQuestion: (questionId) => apiRequest(`/ai/voice-questions/${questionId}/`),
     updateVoiceTranscript: (questionId, transcript) => apiRequest(`/ai/voice-questions/${questionId}/`, { method: 'PATCH', body: { transcript } }),

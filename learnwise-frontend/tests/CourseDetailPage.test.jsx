@@ -20,6 +20,7 @@ jest.mock('../src/api/materials.api', () => ({
     list: jest.fn(),
     transcription: jest.fn(),
     summary: jest.fn(),
+    download: jest.fn(),
   },
 }));
 

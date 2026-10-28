@@ -7,6 +7,7 @@ Vues du module `assessment`.
 Étape 6 : génération IA (lancer un job, suivre son état par polling).
 """
 from django.db import transaction
+from django.db import models
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
@@ -29,11 +30,7 @@ from .serializers import (
 )
 
 from .models import Quiz, Question, Choice, QuizAttempt, Answer, Evaluation, Exercise
-from .serializers import (
-    QuizSerializer, QuestionSerializer, ChoiceSerializer,
-    QuizAttemptSerializer, AnswerSerializer, EvaluationSerializer, ExerciseSerializer,
-)
-from content.models import Course
+from content.models import Course, CourseMaterial, LessonCompletion, Badge, check_course_completion
 
 @api_view(['GET'])
 def api_root(request):
@@ -86,7 +83,7 @@ def visible_quizzes(user):
         return queryset
     if is_teacher(user):
         return queryset.filter(created_by=user)
-    return queryset.filter(status=PublishStatus.PUBLISHED)
+    return queryset.filter(status=PublishStatus.PUBLISHED, course__status='published')
 
 
 def detail_serializer_class(user):
@@ -117,6 +114,47 @@ def filter_by_course(queryset, request):
     return queryset.filter(course_id=course_id)
 
 
+def get_quiz_materials(quiz):
+    """
+    Retourne les CourseMaterial qu'un étudiant doit avoir complétés avant de
+    pouvoir passer ce quiz.
+    - Si quiz.chapter est défini : tous les matériaux de ce chapitre.
+    - Si quiz.chapter est None : tous les matériaux du cours (chapitres inclus).
+    """
+    if quiz.chapter_id is not None:
+        return CourseMaterial.objects.filter(chapter_id=quiz.chapter_id)
+    if quiz.course_id is not None:
+        return CourseMaterial.objects.filter(
+            models.Q(course_id=quiz.course_id) | models.Q(chapter__course_id=quiz.course_id)
+        ).distinct()
+    return CourseMaterial.objects.none()
+
+
+def get_uncompleted_materials(user, quiz):
+    """
+    Retourne les matériaux du quiz que l'utilisateur n'a pas encore complétés.
+    """
+    materials = get_quiz_materials(quiz)
+    if not materials:
+        return []
+    completed_ids = set(
+        LessonCompletion.objects.filter(user=user, material__in=materials)
+        .values_list('material_id', flat=True)
+    )
+    return [m for m in materials if m.id not in completed_ids]
+
+
+def can_start_quiz(user, quiz):
+    """
+    Vérifie si l'utilisateur peut démarrer une tentative sur ce quiz.
+    Retourne (True, None) si autorisé, (False, [matériaux_manquants]) sinon.
+    """
+    if not user.is_authenticated or user.role != 'etudiant':
+        return True, None  # professeurs/admins ne sont pas gâtés
+    missing = get_uncompleted_materials(user, quiz)
+    return (len(missing) == 0), missing
+
+
 # ---------------------------------------------------------------------------
 # GET/POST /quizzes/
 # ---------------------------------------------------------------------------
@@ -125,8 +163,16 @@ class QuizListCreateView(ContractErrorsMixin, generics.ListCreateAPIView):
     serializer_class = QuizListSerializer  # liste paginée : {count, next, previous, results}
 
     def get_queryset(self):
-        # Visibilité selon le rôle, puis filtre facultatif ?course=<id>.
-        return filter_by_course(visible_quizzes(self.request.user), self.request)
+        # Visibilité selon le rôle, puis filtres facultatifs ?course=<id> et ?chapter=<id>.
+        qs = filter_by_course(visible_quizzes(self.request.user), self.request)
+        chapter = self.request.query_params.get('chapter')
+        if chapter in (None, ''):
+            return qs
+        try:
+            chapter_id = int(chapter)
+        except ValueError:
+            raise ValidationError({'chapter': ['A valid chapter id is required.']})
+        return qs.filter(chapter_id=chapter_id)
 
     def create(self, request, *args, **kwargs):
         serializer = QuizWriteSerializer(data=request.data, context={'request': request})
@@ -195,7 +241,7 @@ def get_published_quiz(quiz_id):
     """Quiz publié avec questions et choix préchargés ; 404 sinon (brouillon ou inconnu)."""
     return get_object_or_404(
         Quiz.objects.prefetch_related('questions__choices'),
-        pk=quiz_id, status=PublishStatus.PUBLISHED,
+        pk=quiz_id, status=PublishStatus.PUBLISHED, course__status='published',
     )
 
 
@@ -227,6 +273,17 @@ class AttemptListCreateView(ContractErrorsMixin, generics.ListCreateAPIView):
 
     def create(self, request, *args, **kwargs):
         quiz = get_published_quiz(kwargs['quiz_id'])
+        # Gating : l'étudiant doit avoir complété tous les matériaux du quiz avant de démarrer.
+        allowed, missing = can_start_quiz(request.user, quiz)
+        if not allowed:
+            missing_titles = [m.title for m in missing]
+            return Response(
+                {
+                    'detail': 'Vous devez terminer tous les supports de ce quiz avant de le démarrer.',
+                    'missing_materials': missing_titles,
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
         # get_or_create : renvoie la tentative en cours si elle existe, sinon en crée une.
         # La contrainte unique de la base protège contre deux clics simultanés.
         attempt, created = QuizAttempt.objects.get_or_create(
@@ -284,7 +341,41 @@ class AttemptSubmitView(ContractErrorsMixin, APIView):
                 serializer.is_valid(raise_exception=True)
                 save_answers(attempt, serializer.validated_data['answers'])
             evaluation = evaluate_attempt(attempt)
-        return Response(EvaluationSerializer(evaluation).data, status=status.HTTP_200_OK)
+
+            # Badge awarding : si c'est un quiz de fin de cours (chapter=None),
+            # que l'utilisateur a un score excellent (>= 80%) et qu'il a complété
+            # tous les supports du cours, on lui décerne le badge du cours.
+            badge = None
+            if quiz.chapter_id is None and quiz.course_id is not None:
+                score_ratio = evaluation.score / evaluation.total_questions if evaluation.total_questions else 0
+                if score_ratio >= 0.8:
+                    is_complete, completed_count = check_course_completion(quiz.course, request.user)
+                    if is_complete:
+                        badge, created = Badge.objects.get_or_create(
+                            course=quiz.course,
+                            user=request.user,
+                            defaults={
+                                'name': f'{quiz.course.title} — Complété',
+                                'description': f'Badge décerné pour la completion du cours "{quiz.course.title}"',
+                                'criteria': {
+                                    'quiz_id': str(quiz.id),
+                                    'score': evaluation.score,
+                                    'total_questions': evaluation.total_questions,
+                                    'materials_completed': completed_count,
+                                },
+                            },
+                        )
+        # Construire la réponse avec infos badge si décerné
+        data = EvaluationSerializer(evaluation).data
+        if badge:
+            from content.serializers import LessonCompletionSerializer
+            data['badge'] = {
+                'id': str(badge.id),
+                'name': badge.name,
+                'description': badge.description,
+                'awarded_at': badge.awarded_at.isoformat() if badge.awarded_at else None,
+            }
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class AttemptEvaluationView(ContractErrorsMixin, APIView):
@@ -314,7 +405,7 @@ def visible_exercises(user):
         return queryset
     if is_teacher(user):
         return queryset.filter(created_by=user)
-    return queryset.filter(status=PublishStatus.PUBLISHED)
+    return queryset.filter(status=PublishStatus.PUBLISHED, course__status='published')
 
 
 def exercise_serializer_class(user):
@@ -406,7 +497,7 @@ class ExerciseSubmissionView(ContractErrorsMixin, APIView):
     def post(self, request, exercise_id):
         exercise = get_object_or_404(
             Exercise.objects.prefetch_related('choices'),
-            pk=exercise_id, status=PublishStatus.PUBLISHED,
+            pk=exercise_id, status=PublishStatus.PUBLISHED, course__status='published',
         )
         serializer = ExerciseAnswerSerializer(data=request.data, context={'exercise': exercise})
         serializer.is_valid(raise_exception=True)
