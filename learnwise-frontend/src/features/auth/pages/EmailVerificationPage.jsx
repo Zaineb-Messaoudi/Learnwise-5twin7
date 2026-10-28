@@ -74,7 +74,7 @@ export function EmailVerificationPage() {
     setCodeLoading(true);
     setCodeError('');
     try {
-      await authApi.verifyCode(codeString);
+      await authApi.verifyCode(codeString, email);
       setStatus('success');
     } catch (cause) {
       setCodeError(cause?.response?.data?.detail || 'Invalid verification code.');

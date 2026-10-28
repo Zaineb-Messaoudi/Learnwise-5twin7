@@ -76,8 +76,9 @@ export function AuthProvider({ children }) {
             await authApi.changePassword(payload);
             return { success: true };
         } catch (cause) {
-            if (handleStepUpError(cause)) {
-                return { success: false, error: stepUpError, requiresStepUp: true };
+            const stepUpMsg = handleStepUpError(cause);
+            if (stepUpMsg) {
+                return { success: false, error: stepUpMsg, requiresStepUp: true };
             }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to change password.';
             setError(msg);
@@ -211,8 +212,13 @@ export function AuthProvider({ children }) {
         setLoading(true);
         setError(null);
         try {
-            const response = await authApi.get2FAStatus();
-            return { success: true, data: response };
+            // Use two_factor_enabled from /me/ instead of calling /auth/2fa/setup/
+            // which generates a TOTP secret and returns 400 when 2FA is already on
+            const response = await getUser();
+            if (response.success) {
+                return { success: true, data: { two_factor_enabled: response.data?.two_factor_enabled } };
+            }
+            return { success: false, error: response.error || 'Failed to load 2FA status.' };
         } catch (cause) {
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to load 2FA status.';
             setError(msg);
@@ -224,6 +230,37 @@ export function AuthProvider({ children }) {
 
     const getUserSessions = async () => {
         return listSessions();
+    };
+
+    // Social accounts
+    const getSocialAccounts = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.getSocialAccounts();
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || 'Failed to load social accounts.';
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const unlinkSocialAccount = async (provider) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await authApi.unlinkSocialAccount(provider);
+            return { success: true, data: response };
+        } catch (cause) {
+            const msg = cause?.response?.data?.detail || cause.message || `Failed to unlink ${provider}.`;
+            setError(msg);
+            return { success: false, error: msg };
+        } finally {
+            setLoading(false);
+        }
     };
 
     const enable2FA = async (payload) => {
@@ -248,8 +285,9 @@ export function AuthProvider({ children }) {
             await authApi.disable2FA(payload);
             return { success: true };
         } catch (cause) {
-            if (handleStepUpError(cause)) {
-                return { success: false, error: stepUpError, requiresStepUp: true };
+            const stepUpMsg = handleStepUpError(cause);
+            if (stepUpMsg) {
+                return { success: false, error: stepUpMsg, requiresStepUp: true };
             }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to disable 2FA.';
             setError(msg);
@@ -267,8 +305,9 @@ export function AuthProvider({ children }) {
             await authApi.requestEmailChange(newEmail);
             return { success: true };
         } catch (cause) {
-            if (handleStepUpError(cause)) {
-                return { success: false, error: stepUpError, requiresStepUp: true };
+            const stepUpMsg = handleStepUpError(cause);
+            if (stepUpMsg) {
+                return { success: false, error: stepUpMsg, requiresStepUp: true };
             }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to request email change.';
             setError(msg);
@@ -285,8 +324,9 @@ export function AuthProvider({ children }) {
             await authApi.confirmEmailChange(token);
             return { success: true };
         } catch (cause) {
-            if (handleStepUpError(cause)) {
-                return { success: false, error: stepUpError, requiresStepUp: true };
+            const stepUpMsg = handleStepUpError(cause);
+            if (stepUpMsg) {
+                return { success: false, error: stepUpMsg, requiresStepUp: true };
             }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to confirm email change.';
             setError(msg);
@@ -569,8 +609,9 @@ export function AuthProvider({ children }) {
             const response = await authApi.requestAccountDeletion(payload);
             return { success: true, message: response.detail };
         } catch (cause) {
-            if (handleStepUpError(cause)) {
-                return { success: false, error: stepUpError, requiresStepUp: true };
+            const stepUpMsg = handleStepUpError(cause);
+            if (stepUpMsg) {
+                return { success: false, error: stepUpMsg, requiresStepUp: true };
             }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to request account deletion.';
             setError(msg);
@@ -587,8 +628,9 @@ export function AuthProvider({ children }) {
             await authApi.confirmAccountDeletion(payload);
             return { success: true };
         } catch (cause) {
-            if (handleStepUpError(cause)) {
-                return { success: false, error: stepUpError, requiresStepUp: true };
+            const stepUpMsg = handleStepUpError(cause);
+            if (stepUpMsg) {
+                return { success: false, error: stepUpMsg, requiresStepUp: true };
             }
             const msg = cause?.response?.data?.detail || cause.message || 'Failed to confirm account deletion.';
             setError(msg);
@@ -620,9 +662,9 @@ export function AuthProvider({ children }) {
             const msg = cause.response.data.detail || 'Please re-authenticate with your password.';
             setStepUpRequired(true);
             setStepUpError(msg);
-            return true;
+            return msg;
         }
-        return false;
+        return null;
     };
 
     // Re-authenticate with a password to upgrade the session from face to password
@@ -682,6 +724,8 @@ export function AuthProvider({ children }) {
         listSessions,
         getUserSessions,
         get2FAStatus,
+        getSocialAccounts,
+        unlinkSocialAccount,
         revokeSession,
         revokeAllSessions,
         uploadAvatar,

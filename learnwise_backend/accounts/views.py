@@ -71,6 +71,7 @@ from .serializers import (
     PasswordResetRequestSerializer,
     RegisterSerializer,
     SelectRoleSerializer,
+    SocialAccountSerializer,
     SocialAuthSerializer,
     TermsVersionSerializer,
     TermsAcceptSerializer,
@@ -612,11 +613,17 @@ class VerifyCodeView(APIView):
         serializer = EmailVerifyCodeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         code = serializer.validated_data['code']
+        email = serializer.validated_data['email'].lower()
 
         try:
-            verification = EmailVerification.objects.get(code=code)
-        except (EmailVerification.DoesNotExist, ValueError, DjangoValidationError):
+            verification = EmailVerification.objects.get(code=code, user__email__iexact=email)
+        except EmailVerification.DoesNotExist:
             return Response({'detail': 'Invalid verification code.'}, status=status.HTTP_400_BAD_REQUEST)
+        except EmailVerification.MultipleObjectsReturned:
+            EmailVerification.objects.filter(code=code, user__email__iexact=email).exclude(
+                id=EmailVerification.objects.filter(code=code, user__email__iexact=email).first().id
+            ).delete()
+            verification = EmailVerification.objects.get(code=code, user__email__iexact=email)
 
         if not verification.is_valid():
             return Response({'detail': 'This verification code has expired.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -851,22 +858,35 @@ class SocialAuthView(APIView):
         # Require verified email from provider
         if provider == 'google' and not user_data.get('email_verified', False):
             return Response({'detail': 'Google account email not verified.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Facebook does not return an email_verified field; if email is present it is verified by Facebook
 
         with transaction.atomic():
-            user, created = User.objects.get_or_create(
-                email=email,
-                defaults={
-                    'username': self._unique_username(email),
-                    'first_name': user_data.get('given_name', user_data.get('first_name', '')),
-                    'last_name': user_data.get('family_name', user_data.get('last_name', '')),
-                    'role': None,  # Always null for new OAuth users - they choose on CompleteProfilePage
-                    'email_verified': True,  # Trust provider's verified email
-                }
-            )
-
-            if created:
+            try:
+                user = User.objects.get(email=email)
+                # Pre-hijack protection: if an account with a password already exists
+                # for this email AND no social account is linked for this provider,
+                # social login cannot take it over. The user must sign in with their
+                # password first, then link the social account.
+                if user.has_usable_password():
+                    existing_social = SocialAccount.objects.filter(user=user, provider=provider).first()
+                    if not existing_social:
+                        return Response({
+                            'detail': 'An account with this email already exists. Please sign in with your password, then link your social account.',
+                            'requires_password_login': True,
+                        }, status=status.HTTP_409_CONFLICT)
+                created = False
+            except User.DoesNotExist:
+                user = User.objects.create(
+                    email=email,
+                    username=self._unique_username(email),
+                    first_name=user_data.get('given_name', user_data.get('first_name', '')),
+                    last_name=user_data.get('family_name', user_data.get('last_name', '')),
+                    role=None,
+                    email_verified=True,
+                )
                 user.set_unusable_password()
                 user.save()
+                created = True
                 try:
                     EmailVerification.objects.get_or_create(user=user)
                 except EmailVerification.DoesNotExist:
@@ -1507,11 +1527,10 @@ class FaceVerifyView(APIView):
         # NOTE: This is an O(n) scan over all verified face profiles.
         # For production scale (>10k users), replace with a vector database
         # (pgvector, Pinecone, Weaviate) for approximate nearest neighbor search.
-        # Currently filtered to only student/professor roles since face login
-        # is only allowed for those account types.
+        # We match against ALL roles here so that face_login_allowed() below can
+        # correctly return 403 for admins/staff instead of a misleading 401.
         for face_profile in FaceProfile.objects.filter(
-            is_verified=True,
-            user__role__in=['etudiant', 'professeur']
+            is_verified=True
         ).select_related('user'):
             verified, distance = face_profile.verify_face(live_descriptor)
             if verified and distance < best_distance:
@@ -1630,6 +1649,34 @@ class FaceProfileView(APIView):
             return Response({'detail': 'Face profile deleted successfully.'})
         except FaceProfile.DoesNotExist:
             return Response({'detail': 'No face profile to delete.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+# Social Accounts
+class SocialAccountListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        accounts = request.user.social_accounts.all()
+        return Response(SocialAccountSerializer(accounts, many=True).data)
+
+
+class SocialAccountUnlinkView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        provider = request.data.get('provider')
+        if not provider:
+            return Response({'detail': 'Provider is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        deleted, _ = request.user.social_accounts.filter(provider=provider).delete()
+        if deleted:
+            log_security_event(
+                user=request.user,
+                event_type='social_unlink',
+                severity='info',
+                description=f'Social account unlinked: {provider}',
+            )
+            return Response({'detail': f'{provider} account unlinked.'})
+        return Response({'detail': f'No {provider} account linked.'}, status=status.HTTP_404_NOT_FOUND)
 
 
 # Security Events
@@ -2055,8 +2102,9 @@ class AdminUserViewSet(viewsets.ModelViewSet):
             user.role = 'professeur' if user.role == 'professeur' else 'etudiant'
         else:
             user.role = 'etudiant'
+            user.is_superuser = False
         user.is_staff = False
-        user.save(update_fields=['role', 'is_staff'])
+        user.save(update_fields=['role', 'is_staff', 'is_superuser'])
         log_security_event(
             user=user,
             event_type='admin_demote',
@@ -2130,6 +2178,7 @@ class StepUpView(APIView):
     so the existing session is elevated rather than duplicated.
     """
     permission_classes = [IsAuthenticated]
+    throttle_scope = 'step_up'
 
     def post(self, request):
         serializer = StepUpSerializer(data=request.data)
@@ -2141,9 +2190,9 @@ class StepUpView(APIView):
         if not user.check_password(password):
             return Response({'detail': 'Current password is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Generate new tokens with auth_method='password' but WITHOUT creating a new session
-        # (pass request=None to avoid creating a new UserSession)
-        tokens = get_tokens_for_user(user, request=None, auth_method='password')
+        # Generate new tokens with auth_method='password' and a fresh session id
+        # so the elevated session can be revoked independently.
+        tokens = get_tokens_for_user(user, request, auth_method='password')
 
         log_security_event(
             user=user,

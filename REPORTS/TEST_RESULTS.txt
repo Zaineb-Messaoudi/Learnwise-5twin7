@@ -1,0 +1,34 @@
+================================================================================
+  LEARNWISE - TEST RESULTS SUMMARY
+================================================================================
+
+Date: 2026-10-27
+Project: Learnwise
+Command: python -m pytest content/tests.py --tb=no -q
+
+RESULT: 68 passed, 7 warnings, 0 failed
+
+Test breakdown by feature:
+  - Course CRUD (create, read, update, delete, publish, archive, stats): 9
+  - CourseMaterial CRUD + download: 4
+  - Audio/Document/Video/Transcription/Summary CRUD: 5
+  - Chapter CRUD + material association: 5
+  - Real-time Presence (REST + model): 4
+  - Thumbnail generation (image + placeholder): 3
+  - Course Versioning (create, list, rollback, unauthorized): 5
+  - Scheduled Publishing (future, past, command): 3
+  - Course Prerequisites (add, list, remove, self, circular): 5
+  - Estimated Reading Time (auto-calc, serializer): 2
+  - Duplicate Course (basic, with chapters/materials, unauthorized): 3
+  - Export Course (zip, unpublished student, unauthorized): 3
+  - Slug SEO-friendly (auto, uniqueness, serializer): 3
+  - Pending Review Moderation (submit, approve, reject, not admin): 5
+
+Related face-login test fix verified:
+  - test_face_login_is_refused_for_admin_accounts: PASS (403, was 401)
+
+python manage.py check: 0 issues
+
+================================================================================
+  END OF TEST RESULTS
+================================================================================

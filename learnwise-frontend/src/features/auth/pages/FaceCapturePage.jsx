@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, AlertCircle, Mail } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
-import { authApi } from '../../../api/auth.api';
+import { Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { FaceCapture } from '../components/FaceCapture';
 import { Logo } from '../../../layouts/AppShell';
@@ -15,26 +14,63 @@ function getRouteRole(backendRole) {
 export function FaceCapturePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { registerFace, login } = useAuth();
-  const [status, setStatus] = useState('idle'); // idle | capturing | registering | verifying | verified | error
+  const { isAuthenticated, updateUser, registerFace, getUser } = useAuth();
+  const [status, setStatus] = useState('idle'); // idle | capturing | registering | verified | error
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
-  const [resendCountdown, setResendCountdown] = useState(0);
 
-  const pendingUser = searchParams.get('user');
+  const [pendingUser, setPendingUser] = useState(null);
 
   useEffect(() => {
-    if (!pendingUser) {
-      navigate('/auth/register');
-      return;
+    const incomingUser = searchParams.get('user');
+
+    const initializeProfile = async () => {
+      if (incomingUser) {
+        // OAuth / registration flow: user data passed in search params
+        try {
+          const userData = JSON.parse(decodeURIComponent(incomingUser));
+          setEmail(userData.email);
+          setPendingUser(userData);
+          setStatus('capturing');
+        } catch {
+          navigate('/auth/register');
+        }
+        return;
+      }
+
+      if (isAuthenticated) {
+        // Logged-in user completing face verification - fetch their profile
+        setStatus('loading');
+        try {
+          const response = await getUser();
+          if (response.success) {
+            const freshUser = response.data;
+            setEmail(freshUser.email);
+            setPendingUser(freshUser);
+            setStatus('capturing');
+          } else {
+            setError('Failed to load user profile.');
+            setStatus('error');
+          }
+        } catch (err) {
+          setError('Failed to load user profile.');
+          setStatus('error');
+        }
+        return;
+      }
+
+      // Not authenticated and no pending user - redirect to login
+      navigate('/auth/login');
+    };
+
+    initializeProfile();
+  }, [incomingUser, isAuthenticated, navigate, getUser]);
+
+  useEffect(() => {
+    if (status === 'idle') {
+      setStatus('capturing');
     }
-    try {
-      const userData = JSON.parse(decodeURIComponent(pendingUser));
-      setEmail(userData.email);
-    } catch {
-      navigate('/auth/register');
-    }
-  }, [pendingUser, navigate]);
+  }, [status]);
 
   const handleFaceCapture = async (descriptor, qualityScore, enrollmentImage) => {
     setStatus('registering');
@@ -42,7 +78,13 @@ export function FaceCapturePage() {
     try {
       const response = await registerFace(descriptor, qualityScore, enrollmentImage);
       if (response.success) {
-        setStatus('verifying');
+        const pending = pendingUser;
+        setStatus('verified');
+        setTimeout(() => {
+          updateUser({ ...pending, email_verified: pending?.email_verified, two_factor_enabled: pending?.two_factor_enabled });
+          const routeRole = getRouteRole(pending?.role || 'etudiant');
+          navigate(`/${routeRole}/dashboard`, { replace: true });
+        }, 800);
       } else {
         setError(response.error || 'Photo registration failed. Please try again.');
         setStatus('error');
@@ -53,24 +95,9 @@ export function FaceCapturePage() {
     }
   };
 
-  const resendVerification = async () => {
-    if (resendCountdown > 0) return;
-    setError('');
-    try {
-      await authApi.resendVerification();
-      setResendCountdown(60);
-      const countdown = setInterval(() => {
-        setResendCountdown(prev => {
-          if (prev <= 1) {
-            clearInterval(countdown);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } catch (err) {
-      setError('Failed to resend verification email.');
-    }
+  const handleVerifiedContinue = () => {
+    const routeRole = getRouteRole(pendingUser?.role || 'etudiant');
+    navigate(`/${routeRole}/dashboard`, { replace: true });
   };
 
   if (status === 'verified') {
@@ -80,20 +107,14 @@ export function FaceCapturePage() {
           <div className="face-capture-card verified">
             <div className="verified-icon"><CheckCircle size={64} /></div>
             <h1>Photo registered successfully!</h1>
-            <p>Your face has been enrolled. We've sent a verification email to <strong>{email}</strong>.</p>
-            <p className="verifying-hint">Click the link in the email, then continue to log in.</p>
+            <p>Your face photo has been enrolled. You&apos;re all set.</p>
             <button onClick={handleVerifiedContinue} className="btn-primary">
               Go to Dashboard
             </button>
-            <p className="verifying-hint">Or <a href="/auth/login">sign in manually</a></p>
           </div>
         </div>
       </main>
     );
-  }
-
-  if (status === 'idle') {
-    setStatus('capturing');
   }
 
   return (
@@ -124,24 +145,6 @@ export function FaceCapturePage() {
             </div>
           )}
 
-          {status === 'verifying' && (
-            <div className="face-verifying">
-              <Mail size={48} className="pulse" />
-              <h3>Check your email</h3>
-              <p>We sent a verification link to <strong>{email}</strong></p>
-              <p className="verifying-hint">Click the link in the email to verify your account</p>
-              <div className="resend-section">
-                {resendCountdown > 0 ? (
-                  <span className="countdown">Resend available in {resendCountdown}s</span>
-                ) : (
-                  <button onClick={resendVerification} className="btn-resend">
-                    Didn't receive it? Resend email
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
           {status === 'error' && (
             <div className="face-error">
               <AlertCircle size={48} />
@@ -155,7 +158,7 @@ export function FaceCapturePage() {
         </div>
       </div>
     </main>
-    );
-  };
+  );
+}
 
 export default FaceCapturePage;
