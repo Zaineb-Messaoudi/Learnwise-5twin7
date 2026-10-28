@@ -11,6 +11,13 @@ from .errors import AIServiceError
 
 logger = logging.getLogger(__name__)
 
+
+def _sanitize_for_log(value):
+    """Nettoie une valeur avant journalisation pour eviter la log injection."""
+    text = str(value)
+    return text.replace('\r', '').replace('\n', '')
+
+
 SYSTEM_PROMPT = (
     "Tu es l'assistant pedagogique de la plateforme Learnwise. "
     "Reponds dans la langue de l'etudiant, de facon claire, structuree et exacte. "
@@ -83,7 +90,7 @@ def _generate(turns, system_instruction=None, temperature=0.4):
                 codes_seen.append(code)
                 logger.warning(
                     "Gemini modele=%s essai=%s/%s code=%s",
-                    model, attempt, ATTEMPTS_PER_MODEL, code,
+                    _sanitize_for_log(model), attempt, ATTEMPTS_PER_MODEL, code,
                 )
                 if code in RETRYABLE_CODES:
                     if attempt < ATTEMPTS_PER_MODEL:
@@ -107,7 +114,7 @@ def _generate(turns, system_instruction=None, temperature=0.4):
 
             text = (getattr(response, 'text', None) or '').strip()
             if text:
-                logger.info("Gemini a repondu avec le modele %s", model)
+                logger.info("Gemini a repondu avec le modele %s", _sanitize_for_log(model))
                 return text
             break  # reponse vide : on essaie le modele suivant
 
