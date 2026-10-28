@@ -298,3 +298,40 @@ class AssistantConsumer(AsyncWebsocketConsumer):
             'session_id': event['session_id'],
             'user_id': event['user_id'],
         }))
+
+
+class AnalyticsConsumer(AsyncWebsocketConsumer):
+    """WebSocket for real-time analytics events for a user."""
+
+    async def connect(self):
+        self.user = self.scope['user']
+
+        if not self.user or not self.user.is_authenticated:
+            await self.close(code=4001)
+            return
+
+        self.user_id = str(self.user.id)
+        self.group_name = f'analytics_{self.user_id}'
+
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+        await self.send(text_data=json.dumps({'event': 'connected'}))
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+        except json.JSONDecodeError:
+            return
+        if data.get('type') == 'heartbeat':
+            await self.send(text_data=json.dumps({'type': 'heartbeat_ack'}))
+
+    async def analytics_event(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'analytics.event',
+            'event': event.get('event'),
+            'payload': event.get('payload'),
+        }))

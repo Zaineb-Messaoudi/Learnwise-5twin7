@@ -13,7 +13,6 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'learnwise_backend.settings')
 # Django must be fully set up before importing app routing modules that touch models.
 django_asgi_app = get_asgi_application()
 
-from channels.auth import AuthMiddlewareStack  # noqa: E402
 from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
 
 from analytics.middleware import QueryStringJWTAuthMiddleware  # noqa: E402
@@ -24,5 +23,5 @@ websocket_urlpatterns = content_websocket_urlpatterns + analytics_websocket_urlp
 
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
-    "websocket": QueryStringJWTAuthMiddleware(AuthMiddlewareStack(URLRouter(websocket_urlpatterns))),
+    "websocket": QueryStringJWTAuthMiddleware(URLRouter(websocket_urlpatterns)),
 })
