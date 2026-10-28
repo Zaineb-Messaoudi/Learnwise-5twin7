@@ -13,6 +13,12 @@ from .hf_common import hf_error
 
 logger = logging.getLogger(__name__)
 
+
+def _sanitize_for_log(value):
+    """Supprime les caracteres de controle pour eviter l'injection dans les logs."""
+    return ''.join(ch for ch in str(value) if ch >= ' ' and ch != '\x7f')
+
+
 AUDIO_MIME_TYPES = {
     '.mp3': 'audio/mp3',
     '.wav': 'audio/wav',
@@ -82,7 +88,11 @@ def transcribe_audio(file_path):
             return provider(file_path)
         except AIServiceError as exc:
             last_error = exc
-            logger.warning("Transcription : fournisseur %s indisponible (%s)", name, exc.code)
+            logger.warning(
+                "Transcription : fournisseur %s indisponible (%s)",
+                _sanitize_for_log(name),
+                exc.code,
+            )
     raise last_error or AIServiceError(
         'transcription_not_configured',
         "Aucun fournisseur de transcription configure (TRANSCRIPTION_PROVIDERS).",
