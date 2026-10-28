@@ -13,6 +13,9 @@ export const analyticsApi = {
     progress: (courseId) => apiRequest(`/analytics/progress/${courseId ? `?course=${encodeURIComponent(courseId)}` : ''}`),
     performance: (range = '30d') => apiRequest(`/analytics/performance/?range=${encodeURIComponent(range)}`),
     achievements: () => apiRequest('/analytics/achievements/'),
+    dashboard: (range = '30d') => apiRequest(`/analytics/dashboard/?range=${encodeURIComponent(range)}`),
+    recommendations: () => apiRequest('/analytics/recommendations/'),
+    socketPath: () => '/ws/analytics/',
     teacherOverview: (range = '30d') => apiRequest(`/analytics/teacher/overview/?range=${encodeURIComponent(range)}`),
     adminOverview: (range = '30d') => apiRequest(`/analytics/admin/overview/?range=${encodeURIComponent(range)}`),
 };

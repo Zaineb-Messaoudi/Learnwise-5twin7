@@ -69,6 +69,10 @@ export async function apiRequest(path, options = {}) {
 }
 
 export function createWebSocket(path) {
-    const base = (import.meta.env.VITE_WS_URL || window.location.origin.replace(/^http/, 'ws')).replace(/\/$/, '');
-    return new WebSocket(`${base}${path.startsWith('/') ? path : `/${path}`}`);
+    const configuredApiOrigin = API_URL.startsWith('http') ? new URL(API_URL).origin : window.location.origin;
+    const base = (import.meta.env.VITE_WS_URL || configuredApiOrigin.replace(/^http/, 'ws')).replace(/\/$/, '');
+    const token = window.localStorage.getItem('learnwise:access-token');
+    const separator = path.includes('?') ? '&' : '?';
+    const authenticatedPath = token ? `${path}${separator}token=${encodeURIComponent(token)}` : path;
+    return new WebSocket(`${base}${authenticatedPath.startsWith('/') ? authenticatedPath : `/${authenticatedPath}`}`);
 }
