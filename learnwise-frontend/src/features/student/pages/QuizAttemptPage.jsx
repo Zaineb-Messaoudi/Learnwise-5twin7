@@ -18,6 +18,10 @@ const demoQuestions = [
   { id: 'q4', question: 'Why keep a validation set?', options: ['To check generalization', 'To hide the labels', 'To increase font size', 'To remove the test set'], answer: 'To check generalization' },
 ];
 
+// Le backend renvoie TOUTES les questions dans `answers`, avec null pour celles sans réponse (contrat) :
+// une question n'est "répondue" que si sa valeur n'est ni null ni vide.
+const hasAnswer = value => value !== null && value !== undefined && value !== '';
+
 function responseData(response) {
   return response?.attempt || response?.data || response;
 }
@@ -57,14 +61,14 @@ export function QuizAttemptPage() {
     ? (quizQuery.data?.questions || []).map(normalizeQuestion)
     : demoQuestions, [quizQuery.data]);
   const item = questions[current];
-  const answered = Object.keys(answers).length;
+  const answered = Object.values(answers).filter(hasAnswer).length;
   const score = useMemo(() => demoQuestions.reduce((total, question, index) => total + (answers[index] === question.answer ? 1 : 0), 0), [answers]);
 
   useEffect(() => {
     if (attempt?.answers) setAnswers(attempt.answers);
   }, [attempt?.id]);
   useEffect(() => {
-    if (!isBackendApiEnabled || !attempt?.id || !Object.keys(answers).length) return undefined;
+    if (!isBackendApiEnabled || !attempt?.id || !Object.values(answers).some(hasAnswer)) return undefined;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(async () => {
       setSaving(true);
