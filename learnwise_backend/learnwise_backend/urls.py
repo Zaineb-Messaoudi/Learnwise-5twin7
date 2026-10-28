@@ -38,6 +38,7 @@ urlpatterns = [
     path('api/v1/accounts/', include((accounts_urls, 'accounts'), namespace='accounts')),
     path('api/v1/content/', include('content.urls')),
     path('api/v1/ai/', include('ai_assistant.urls')),
+    path('api/v1/assistant/', include('ai_assistant.urls')),
     path('api/v1/assessment/', include('assessment.urls')),
     path('api/v1/analytics/', include('analytics.urls')),
     path('api/v1/notebooks/', include('notebooks.urls')),

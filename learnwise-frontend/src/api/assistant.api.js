@@ -13,9 +13,10 @@ export const assistantApi = {
         body.append('session', sessionId);
         return apiRequest('/ai/voice-questions/', { method: 'POST', body });
     },
-    voiceQuestion: (questionId) => apiRequest(`/ai/voice-questions/${questionId}/`),
-    updateVoiceTranscript: (questionId, transcript) => apiRequest(`/ai/voice-questions/${questionId}/`, { method: 'PATCH', body: { transcript } }),
-    generateIllustration: (sessionId, prompt, style = 'educational') => apiRequest(`/ai/sessions/${sessionId}/illustrations/`, { method: 'POST', body: { prompt, style } }),
-    illustration: (illustrationId) => apiRequest(`/ai/illustrations/${illustrationId}/`),
+    voiceQuestion: (questionId) => apiRequest(`/assistant/voice-questions/${questionId}/`),
+    updateVoiceTranscript: (questionId, transcript) => apiRequest(`/assistant/voice-questions/${questionId}/`, { method: 'PATCH', body: { transcript } }),
+    generateIllustration: (messageId, prompt, style = 'educational') => apiRequest(`/assistant/messages/${messageId}/illustrations/`, { method: 'POST', body: { prompt, style } }),
+    illustration: (illustrationId) => apiRequest(`/assistant/illustrations/${illustrationId}/`),
+
     socketPath: (sessionId) => `/ws/assistant/sessions/${encodeURIComponent(sessionId)}/`,
 };

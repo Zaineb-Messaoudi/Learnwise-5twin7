@@ -1,16 +1,18 @@
+
 # Django & Core
 Django>=5.2,<6.0
 djangorestframework>=3.15
+daphne>=4.1
 djangorestframework-simplejwt>=5.3
 django-cors-headers>=4.3
 django-filter>=23.5
 channels>=4.0
 channels-redis>=4.1
-daphne>=4.1
 
 # Database
 # Using SQLite by default (no extra package needed)
 # Set DB_CONNECTION=mysql to use MySQL (requires mysqlclient)
+mysqlclient>=2.2
 
 # S3 / Supabase Storage (set USE_S3=True in .env to enable)
 django-storages[boto3]>=1.14
@@ -24,25 +26,39 @@ python-dotenv>=1.0
 # OAuth / HTTP requests
 requests>=2.31
 
+# AI - Hugging Face Inference API
+huggingface_hub>=0.24.0
+
+# AI - Gemini
+google-genai>=0.3.0
+
+# AI - Local Stable Diffusion
+diffusers>=0.42
+transformers>=5.21
+accelerate>=1.15
+safetensors>=0.8
+torch>=2.0
+
 # 2FA / TOTP
 pyotp>=2.9
 qrcode[pil]>=7.4
 
-# Face Recognition: frontend uses face-api.js (generates 128-dim descriptors)
-# Backend only compares descriptors using numpy (Euclidean distance)
+# Data processing and analytics
 numpy>=2.0
 pandas>=2.2
 scikit-learn>=1.5
 
-# MySQL (set DB_CONNECTION=mysql in .env to use)
-mysqlclient>=2.2
+# Face Recognition
+# Frontend uses face-api.js to generate 128-dimensional descriptors.
+# Backend compares descriptors using NumPy (Euclidean distance).
 
 # Image Processing
 Pillow>=10.0
 
-# Optional: PDF thumbnail rendering (PyMuPDF/fitz)
+# Optional: PDF thumbnail rendering
 # pip install PyMuPDF
-# Optional: Video frame extraction (opencv-python)
+
+# Optional: Video frame extraction
 # pip install opencv-python
 
 # Testing

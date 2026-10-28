@@ -22,6 +22,7 @@ export function CompleteProfilePage() {
   const [selectedRole, setSelectedRole] = useState(null);
   const [faceCaptured, setFaceCaptured] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
+
   const [resendCountdown, setResendCountdown] = useState(0);
   const pollingRef = useRef(null);
 
@@ -218,7 +219,6 @@ export function CompleteProfilePage() {
       setError('Failed to resend verification email.');
     }
   };
-
   // Render functions for each step
   const renderRoleStep = () => (
     <div className="complete-profile-page">

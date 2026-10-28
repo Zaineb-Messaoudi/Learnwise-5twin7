@@ -6,6 +6,7 @@ import { useVoiceRecorder } from '../../../hooks/useVoiceRecorder';
 import { assistantApi } from '../../../api/assistant.api';
 import { isBackendApiEnabled } from '../../../api/client';
 import { useNavigate } from 'react-router-dom';
+import './VoicePage.css';
 
 export function VoicePage() {
   const recorder = useVoiceRecorder();
@@ -75,5 +76,43 @@ export function VoicePage() {
       setError('Could not send the corrected transcript. Your text remains here so you can retry.');
     } finally { setSending(false); }
   };
-  return <AppShell><PageHeader eyebrow="AI assistant" title="Ask with your voice." description="Record, review the transcription, correct it, then send your question to your assistant." /><div className="voice-page"><section className={`voice-card ${recorder.state === 'recording' ? 'recording' : ''}`}><div className="voice-orb"><div className="voice-ring" /><button type="button" onClick={recorder.state === 'recording' ? recorder.stop : start} className="mic-button" aria-label={recorder.state === 'recording' ? 'Stop recording' : 'Start recording'} disabled={recorder.state === 'requesting'}>{recorder.state === 'recording' ? <span className="stop-square" /> : <Mic size={28} />}</button></div><span className="voice-state" role="status">{error || (submitted ? 'Audio captured. Listen back, then transcribe.' : recorder.state === 'unsupported' ? 'Microphone recording is not supported in this browser.' : recorder.state === 'requesting' ? 'Waiting for microphone permission…' : recorder.state === 'recording' ? `Recording… ${recorder.duration}s` : 'Tap to start recording')}</span><p>Record your question, review the transcript, and send it to your assistant.</p><div className="waveform" aria-hidden="true">{Array.from({ length: 28 }, (_, index) => <i style={{ height: `${20 + ((index * 17) % 45)}%` }} key={index} />)}</div>{audioUrl && <audio controls preload="metadata" src={audioUrl} aria-label="Listen to your recorded question" />}{(recorder.state === 'recording' || recorder.state === 'requesting' || submitted) && <div className="recording-actions">{submitted ? <Button variant="secondary" onClick={cancel}><RotateCcw size={15} /> Record again</Button> : <Button variant="secondary" onClick={cancel}>Cancel recording</Button>}{recorder.state === 'recording' && <Button onClick={recorder.stop}>Finish recording <ArrowRight size={15} /></Button>}{submitted && isBackendApiEnabled && <Button onClick={() => void transcribe()} disabled={transcriptionStatus === 'processing'}><Mic size={15}/>{transcriptionStatus === 'processing' ? 'Transcribing…' : transcriptionStatus === 'failed' ? 'Retry transcription' : 'Transcribe recording'}</Button>}</div>}{transcriptionStatus === 'processing' && <p className="voice-feedback" role="status"><LoaderCircle size={15}/> Transcribing your question…</p>}{transcriptionStatus === 'completed' && <div className="voice-transcript"><label htmlFor="voice-transcript-text">Review and correct your transcript</label><textarea id="voice-transcript-text" name="transcript" value={transcript} onChange={event => setTranscript(event.target.value)} rows={5}/><p><Check size={14}/> Your corrected text will be saved before it is sent to the assistant.</p><Button onClick={() => void sendTranscript()} disabled={sending || !transcript.trim()}><Send size={15}/>{sending ? 'Sending…' : 'Send to assistant'}</Button></div>}{error && <p className="voice-feedback error" role="alert"><AlertCircle size={15}/>{error}</p>}</section><aside className="voice-side"><span className="eyebrow">VOICE QUESTION FLOW</span><div className="voice-step"><span>01</span><div><b>Record and review</b><p>Listen back and replace the recording if it is unclear.</p></div></div><div className="voice-step"><span>02</span><div><b>Transcribe and correct</b><p>Review and edit your transcript before sending it to the assistant.</p></div></div><div className="voice-step"><span>03</span><div><b>Get a grounded explanation</b><p>Your corrected question opens in the assistant conversation for a response.</p></div></div></aside></div></AppShell>;
+  return (
+    <AppShell>
+      <div className="voice-page-wrapper">
+        <PageHeader eyebrow="AI assistant" title="Ask with your voice." description="Record, review the transcription, correct it, then send your question to your assistant." />
+        <div className="voice-page">
+          <section className={`voice-card ${recorder.state === 'recording' ? 'recording' : ''}`}>
+            <div className="voice-orb">
+              <div className="voice-ring" />
+              <button type="button" onClick={recorder.state === 'recording' ? recorder.stop : start} className="mic-button" aria-label={recorder.state === 'recording' ? 'Stop recording' : 'Start recording'} disabled={recorder.state === 'requesting'}>
+                {recorder.state === 'recording' ? <span className="stop-square" /> : <Mic size={28} />}
+              </button>
+            </div>
+            <span className="voice-state" role="status">{error || (submitted ? 'Audio captured. Listen back, then transcribe.' : recorder.state === 'unsupported' ? 'Microphone recording is not supported in this browser.' : recorder.state === 'requesting' ? 'Waiting for microphone permission…' : recorder.state === 'recording' ? `Recording… ${recorder.duration}s` : 'Tap to start recording')}</span>
+            <p>Record your question, review the transcript, and send it to your assistant.</p>
+            <div className="waveform" aria-hidden="true">{Array.from({ length: 28 }, (_, index) => <i style={{ height: `${20 + ((index * 17) % 45)}%` }} key={index} />)}</div>
+            {audioUrl && <audio controls preload="metadata" src={audioUrl} aria-label="Listen to your recorded question" />}
+            {(recorder.state === 'recording' || recorder.state === 'requesting' || submitted) && (
+              <div className="recording-actions">
+                {submitted ? <Button variant="secondary" onClick={cancel}><RotateCcw size={15} /> Record again</Button> : <Button variant="secondary" onClick={cancel}>Cancel recording</Button>}
+                {recorder.state === 'recording' && <Button onClick={recorder.stop}>Finish recording <ArrowRight size={15} /></Button>}
+                {submitted && isBackendApiEnabled && transcriptionStatus !== 'processing' && transcriptionStatus !== 'completed' && <Button onClick={() => void transcribe()} disabled={transcriptionStatus === 'processing'}><Mic size={15} /> Transcribe</Button>}
+                {submitted && transcriptionStatus === 'completed' && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                    <div style={{ padding: 8, background: '#f0f9ff', borderRadius: 8, border: '1px solid #bae6fd' }}>
+                      <strong style={{ color: '#0369a1' }}>Transcription :</strong> <span style={{ color: '#1e293b' }}>{transcript}</span>
+                    </div>
+                    <Button onClick={() => void sendTranscript()} disabled={sending}><Send size={15} /> Send to assistant</Button>
+                  </div>
+                )}
+                {submitted && transcriptionStatus === 'failed' && <Button onClick={() => void transcribe()}><RotateCcw size={15} /> Retry transcription</Button>}
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    </AppShell>
+  );
 }
+
+export default VoicePage;

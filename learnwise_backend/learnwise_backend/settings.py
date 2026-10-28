@@ -61,6 +61,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'learnwise_backend.middleware.CrossOriginResourcePolicyMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -111,6 +112,7 @@ if DB_CONNECTION == 'mysql':
             'CONN_MAX_AGE': 60,
             'CONN_HEALTH_CHECKS': True,
         }
+
     }
 else:
     DATABASES = {
@@ -240,6 +242,11 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
+# En développement, autoriser toutes les origines CORS (evite les problèmes de port
+# frontend variable, ex. Vite sur 5173 ou 5174). Nunca en production.
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+
 # Face login: maximum Euclidean distance for a match (lower = stricter)
 FACE_MATCH_THRESHOLD = float(os.getenv('FACE_MATCH_THRESHOLD', '0.5'))
 
@@ -355,7 +362,13 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
     # Uncomment when running behind a TLS-terminating reverse proxy:
-    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    # SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Cross-Origin headers for media files (fixes COEP blocking images)
+# In development, allow same-origin embedding to serve generated images
+if DEBUG:
+    SECURE_CROSS_ORIGIN_OPENER_POLICY = 'unsafe-none'
+    SECURE_CROSS_ORIGIN_EMBEDDER_POLICY = 'unsafe-none'
 
 # Test settings: use temp directories for media and private exports so tests
 # don't write into the real media/ or private/ folders.

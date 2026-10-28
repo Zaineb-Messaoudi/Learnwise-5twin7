@@ -56,6 +56,7 @@ const QuizLibraryPage = lazy(() => import('../features/student/pages/QuizLibrary
 const ExerciseLibraryPage = lazy(() => import('../features/student/pages/ExerciseLibraryPage').then(module => ({ default: module.ExerciseLibraryPage })));
 const ContactPage = lazy(() => import('../features/public/pages/ContactPage').then(module => ({ default: module.ContactPage })));
 const FaceAuthPage = lazy(() => import('../features/public/pages/FaceAuthPage').then(module => ({ default: module.FaceAuthPage })));
+const EmailVerificationPage = lazy(() => import('../features/auth/pages/EmailVerificationPage').then(module => ({ default: module.EmailVerificationPage })));
 const FaqPage = lazy(() => import('../features/public/pages/FaqPage').then(module => ({ default: module.FaqPage })));
 const ForgotPasswordPage = lazy(() => import('../features/public/pages/ForgotPasswordPage').then(module => ({ default: module.ForgotPasswordPage })));
 const UploadMaterialsPage = lazy(() => import('../features/public/pages/UploadMaterialsPage').then(module => ({ default: module.UploadMaterialsPage })));
@@ -133,7 +134,7 @@ function WorkspaceRouter({ role }) {
   if (['/teacher/audio-processing', '/teacher/pdf-processing'].includes(pathname)) return <ContentManagementPage />;
   if (pathname === '/teacher/students' || /^\/teacher\/students\/[^/]+$/.test(pathname)) return <TeacherStudentsPage />;
   if (pathname === '/teacher/quizzes' || pathname === '/teacher/questions' || pathname === '/teacher/exercises' || pathname === '/teacher/ai-generation') return <AssessmentStudioPage />;
-if (pathname === '/teacher/analytics') return <TeacherAnalyticsPage />;
+  if (pathname === '/teacher/analytics') return <TeacherAnalyticsPage />;
     if (pathname === '/teacher/profile') return <EducatorProfilePage />;
     if (pathname === '/teacher/security') return <EducatorSecuritySettingsPage />;
     if (pathname === '/teacher/settings') return <SettingsPage role="teacher" />;
