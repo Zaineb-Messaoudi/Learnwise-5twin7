@@ -16,6 +16,19 @@ const answers = [
   { match: ['quiz', 'practice'], text: 'Try the four-question Neural Networks Check-in. It covers activation functions, weights, loss, and validation.', source: 'Neural Networks Check-in' },
 ];
 
+const sanitizeImageUrl = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const parsed = new URL(value, window.location.origin);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
 function sanitizeIllustrationImageUrl(value) {
   if (typeof value !== 'string' || !value.trim()) return '';
   try {
@@ -252,7 +265,7 @@ export function AssistantPage() {
     : [{ id: 'sample-1', title: 'Neural networks basics', time: 'Now' }, { id: 'sample-2', title: 'Understanding attention', time: '1d' }, { id: 'sample-3', title: 'Study plan for this week', time: '2d' }];
   return (
     <AppShell>
-      <div className="assistant-page-wrapper">
+              {loading ? <p role="status">Loading your conversations…</p> : messages.map((message, index) => <div key={`${message.from}-${message.id || index}`} className={`chat-message ${message.from} ${message.pending ? 'pending' : ''}`}><div className="chat-avatar" aria-hidden="true">{message.from === 'ai' ? <Sparkles size={15} /> : 'SC'}</div><div><span className="message-author">{message.from === 'ai' ? 'Learnwise AI' : 'You'}</span><p>{message.text || (message.from === 'ai' && message.pending ? 'Learnwise is preparing a response…' : '')}</p>{message.explanation && <p className="assistant-explanation">{message.explanation}</p>}{message.illustrations?.map((illustration, illustrationIndex) => { const safeImageUrl = sanitizeImageUrl(illustration.image); return (<figure className="assistant-illustration" key={illustration.id || illustrationIndex}>{safeImageUrl && <img src={safeImageUrl} alt={illustration.alt_text || illustration.prompt || 'AI-generated course illustration'} loading="lazy"/>}{(illustration.caption || illustration.prompt) && <figcaption>{illustration.caption || illustration.prompt}</figcaption>}</figure>); })}{message.from === 'ai' && index > 0 && <div className="ai-answer"><b>{isBackendApiEnabled ? 'Assistant response' : 'Sample course answer'}</b>{(message.citations?.length ? message.citations : message.source ? [{ title: message.source }] : []).map((citation, citationIndex) => <div className="answer-source" key={citation.id || citationIndex}><span>Source: {citation.title}{citation.page ? ` · page ${citation.page}` : ''}{citation.timestamp ? ` · ${citation.timestamp}` : ''}</span><ArrowRight size={13} /></div>)}</div>}{message.from === 'ai' && isBackendApiEnabled && !message.pending && <div className="message-actions"><button type="button" className="icon-button" onClick={() => void generateIllustration(message.id, message.text)} disabled={generatingIllustration === message.id || sending} aria-label="Generate illustration for this answer"><Image size={16} /><span className="button-label">{generatingIllustration === message.id ? <Loader2 size={14} className="spin" /> : 'Illustrate'}</span></button></div>}</div></div>)}
         <PageHeader eyebrow="AI assistant" title="Ask, explore, understand." description="Your learning companion can answer with explanations grounded in your course materials." />
         <div className="assistant-layout">
           <aside className="conversation-list">
