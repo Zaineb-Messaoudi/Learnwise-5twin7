@@ -2,13 +2,16 @@ import json
 import base64
 from django.contrib.auth import get_user_model
 from django.http import Http404
+from django.utils import timezone
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from asgiref.sync import sync_to_async
+from channels.generic.websocket import AsyncWebsocketConsumer
 
 User = get_user_model()
 
 from content.models import Course, CoursePresence
+from ai_assistant.models import AssistantSession
 
 
 class PresenceConsumer(AsyncWebsocketConsumer):
@@ -29,10 +32,13 @@ class PresenceConsumer(AsyncWebsocketConsumer):
 
         # Authenticate via JWT token from query string
         jwt_auth = JWTAuthentication()
-        query_params = dict(
-            map(lambda x: (x[0].decode() if isinstance(x, tuple) else x),
-                self.scope.get('query_string', b'').decode().split('&'))
-        )
+        query_string = self.scope.get('query_string', b'').decode()
+        query_params = {}
+        if query_string:
+            for part in query_string.split('&'):
+                if '=' in part:
+                    k, v = part.split('=', 1)
+                    query_params[k] = v
         token = query_params.get('token')
         if token:
             try:
@@ -94,7 +100,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
     async def presence_update(self, event):
         """Sent by group when presence changes."""
         await self.send(text_data=json.dumps({
-            'type': 'presence',
+            'type': 'presence_update',
             'course_id': self.course_id,
             'users': event['users'],
             'count': event['count'],
@@ -150,3 +156,145 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                 'count': len(users),
             },
         )
+
+
+class ProgressConsumer(AsyncWebsocketConsumer):
+    """WebSocket for real-time progress updates on a user's courses."""
+
+    async def connect(self):
+        self.user_id = self.scope['url_route']['kwargs']['user_id']
+        self.group_name = f'progress_{self.user_id}'
+
+        jwt_auth = JWTAuthentication()
+        query_string = self.scope.get('query_string', b'').decode()
+        query_params = {}
+        if query_string:
+            for part in query_string.split('&'):
+                if '=' in part:
+                    k, v = part.split('=', 1)
+                    query_params[k] = v
+        token = query_params.get('token')
+        if token:
+            try:
+                validated_token = jwt_auth.get_validated_token(token)
+                uid = validated_token['user_id']
+                get_user = sync_to_async(User.objects.get)
+                user = await get_user(uid)
+                self.scope['user'] = user
+            except (InvalidToken, TokenError, User.DoesNotExist):
+                pass
+
+        self.user = self.scope['user']
+
+        if not self.user or not self.user.is_authenticated:
+            await self.close(code=4001)
+            return
+
+        # Only allow connecting to your own progress stream
+        if str(self.user.id) != self.user_id:
+            await self.close(code=4003)
+            return
+
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+        except json.JSONDecodeError:
+            return
+        # Echo progress updates back to the client (placeholder for real logic)
+        msg_type = data.get('type')
+        if msg_type == 'heartbeat':
+            await self.send(text_data=json.dumps({'type': 'heartbeat_ack'}))
+
+    async def progress_update(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'progress_update',
+            'course_id': event.get('course_id'),
+            'progress': event.get('progress'),
+        }))
+
+
+class AssistantConsumer(AsyncWebsocketConsumer):
+    """WebSocket for AI assistant chat within a session."""
+
+    async def connect(self):
+        self.session_id = self.scope['url_route']['kwargs']['session_id']
+        self.group_name = f'assistant_{self.session_id}'
+
+        jwt_auth = JWTAuthentication()
+        query_string = self.scope.get('query_string', b'').decode()
+        query_params = {}
+        if query_string:
+            for part in query_string.split('&'):
+                if '=' in part:
+                    k, v = part.split('=', 1)
+                    query_params[k] = v
+        token = query_params.get('token')
+        if token:
+            try:
+                validated_token = jwt_auth.get_validated_token(token)
+                uid = validated_token['user_id']
+                get_user = sync_to_async(User.objects.get)
+                user = await get_user(uid)
+                self.scope['user'] = user
+            except (InvalidToken, TokenError, User.DoesNotExist):
+                pass
+
+        self.user = self.scope['user']
+
+        if not self.user or not self.user.is_authenticated:
+            await self.close(code=4001)
+            return
+
+        # Verify session belongs to user
+        try:
+            session = await sync_to_async(AssistantSession.objects.select_related('user').get)(
+                id=self.session_id
+            )
+        except AssistantSession.DoesNotExist:
+            await self.close(code=4004)
+            return
+
+        if session.user_id != self.user.id:
+            await self.close(code=4003)
+            return
+
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+        except json.JSONDecodeError:
+            return
+        msg_type = data.get('type')
+        if msg_type == 'heartbeat':
+            await self.send(text_data=json.dumps({'type': 'heartbeat_ack'}))
+        elif msg_type == 'message':
+            await self.channel_layer.group_send(
+                self.group_name,
+                {
+                    'type': 'assistant_message',
+                    'content': data.get('content', ''),
+                    'session_id': self.session_id,
+                    'user_id': self.user.id,
+                },
+            )
+
+    async def assistant_message(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'assistant_message',
+            'content': event['content'],
+            'session_id': event['session_id'],
+            'user_id': event['user_id'],
+        }))

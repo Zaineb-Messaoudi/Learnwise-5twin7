@@ -3,7 +3,7 @@ import { CheckCircle, Loader2, FileText, Trash, FileSearch } from 'lucide-react'
 import { coursesApi } from '../../../api/courses.api';
 import { useForm } from 'react-hook-form';
 import { AppShell } from '../../../layouts/AppShell';
-import { Button, ProgressBar } from '../../../components/shared/Primitives';
+import { Button, ProgressBar, PageHeader } from '../../../components/shared/Primitives';
 import { ErrorState, LoadingState, EmptyState } from '../../../components/ui/States';
 import '../../student/components/courses.css';
 

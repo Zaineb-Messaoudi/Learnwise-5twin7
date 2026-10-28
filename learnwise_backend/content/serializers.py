@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary, CoursePresence, CourseVersion, CoursePrerequisite
 
@@ -80,6 +82,22 @@ class CourseMaterialSerializer(serializers.ModelSerializer):
             if request:
                 return request.build_absolute_uri(obj.thumbnail.url)
         return None
+
+    def validate_file(self, value):
+        if not value:
+            return value
+        # Enforce max upload size
+        max_size = getattr(settings, 'MAX_UPLOAD_SIZE', 100 * 1024 * 1024)
+        if value.size > max_size:
+            raise serializers.ValidationError(f'File too large. Maximum size is {max_size // (1024 * 1024)}MB.')
+        # Enforce allowed extensions
+        allowed = getattr(settings, 'ALLOWED_MATERIAL_EXTENSIONS', [])
+        if allowed:
+            import os
+            ext = os.path.splitext(value.name)[1].lower()
+            if ext not in allowed:
+                raise serializers.ValidationError(f'File extension "{ext}" is not allowed. Allowed: {", ".join(allowed)}')
+        return value
 
 
 class AudioMaterialSerializer(serializers.ModelSerializer):

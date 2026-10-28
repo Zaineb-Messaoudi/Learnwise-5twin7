@@ -58,7 +58,7 @@ export function CourseMaterialUpload({ courseId, onMaterialAdded }) {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/content/materials/', true);
       xhr.upload.onprogress = (e) => {
-        if e.lengthComputable {
+        if (e.lengthComputable) {
           const percent = Math.round((e.loaded / e.total) * 100);
           setProgress(percent);
         }

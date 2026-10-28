@@ -1,4 +1,4 @@
-import { apiRequest } from './client';
+import { apiRequest, apiClient } from './client';
 
 export const coursesApi = {
     list: (params = '') => apiRequest(`/content/courses/${params}`),
@@ -15,7 +15,10 @@ export const coursesApi = {
     createVersion: (id, data) => apiRequest(`/content/courses/${id}/create_version/`, { method: 'POST', body: data }),
     rollback: (id, version_id) => apiRequest(`/content/courses/${id}/rollback/`, { method: 'POST', body: { version_id } }),
     duplicate: (id, data) => apiRequest(`/content/courses/${id}/duplicate/`, { method: 'POST', body: data }),
-    export: (id) => apiRequest(`/content/courses/${id}/export/`),
+    export: async (id) => {
+      const response = await apiClient.get(`/content/courses/${id}/export/`, { responseType: 'blob' });
+      return response;
+    },
     submitForReview: (id) => apiRequest(`/content/courses/${id}/submit_for_review/`, { method: 'POST' }),
     approve: (id) => apiRequest(`/content/courses/${id}/approve/`, { method: 'POST' }),
     reject: (id) => apiRequest(`/content/courses/${id}/reject/`, { method: 'POST' }),

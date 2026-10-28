@@ -5,9 +5,10 @@ export const materialsApi = {
     upload: (courseId, file, metadata = {}, onUploadProgress) => {
         const body = new FormData();
         body.append('file', file);
-        body.append('kind', metadata.kind || (file.type.startsWith('audio/') ? 'audio' : 'document'));
+        body.append('material_type', metadata.material_type || metadata.kind || (file.type.startsWith('audio/') ? 'audio' : 'document'));
+        body.append('title', metadata.title || file.name);
         if (metadata.language) body.append('language', metadata.language);
-        body.append('course', courseId);  // Add course to FormData
+        body.append('course', courseId);
         return apiRequest(`/content/materials/`, { method: 'POST', body, onUploadProgress });
     },
     processingStatus: (id) => apiRequest(`/content/materials/${id}/processing/`),

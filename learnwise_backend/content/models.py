@@ -1,8 +1,12 @@
+import logging
 import uuid
 from django.db import models
 from django.conf import settings
+from django.core.mail import send_mail
 from django.utils import timezone
 from django.utils.text import slugify
+
+logger = logging.getLogger(__name__)
 
 
 def upload_to_course_material(instance, filename):
@@ -34,7 +38,7 @@ class Course(models.Model):
     content_type = models.CharField(max_length=20, choices=CONTENT_TYPE_CHOICES, default='document')
     markdown_content = models.TextField(blank=True, help_text="Contenu du cours en Markdown")
     latex_content = models.TextField(blank=True, help_text="Contenu du cours en LaTeX")
-    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='courses_created', null=True, blank=True)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name='courses_created', null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)
     scheduled_publish_at = models.DateTimeField(null=True, blank=True, help_text="Date de publication planifiée. Si définie, le cours sera publié automatiquement à cette date.")
@@ -53,11 +57,12 @@ class Course(models.Model):
     def save(self, *args, **kwargs):
         if not self.pk:
             self.created_at = timezone.now()
+            # Auto-publish if scheduled_publish_at is in the past (new course only;
+            # updates must not override a manual status change such as reject/rollback)
+            if self.scheduled_publish_at and timezone.now() >= self.scheduled_publish_at:
+                if self.status == 'draft':
+                    self.status = 'published'
         self.updated_at = timezone.now()
-        # Auto-publish if scheduled_publish_at is in the past
-        if self.scheduled_publish_at and timezone.now() >= self.scheduled_publish_at:
-            if self.status == 'draft':
-                self.status = 'published'
         # Auto-calculate estimated reading minutes
         self.estimated_reading_minutes = self._calculate_reading_time()
         # Auto-generate slug from title if not set
@@ -322,26 +327,25 @@ class CoursePrerequisite(models.Model):
     def _would_create_cycle(self):
         """Check if adding this prerequisite would create a cycle.
 
-        Starting from self.prerequisite_course, follow existing "requires"
-        chains. If we can reach self.course, adding course -> prerequisite_course
+        Starting from self.prerequisite_course, follow ALL existing "requires"
+        chains (BFS). If we can reach self.course, adding course -> prerequisite_course
         closes the loop.
         """
         visited = set()
-        current = self.prerequisite_course
-        while current:
+        queue = [self.prerequisite_course]
+        while queue:
+            current = queue.pop(0)
             if current.id == self.course.id:
                 return True
             if current.id in visited:
-                break
+                continue
             visited.add(current.id)
-            # Follow what current requires (current's prerequisites)
-            prereq_rel = CoursePrerequisite.objects.filter(
+            # Follow ALL prerequisites of current, not just the first
+            for prereq_rel in CoursePrerequisite.objects.filter(
                 course=current
-            ).select_related('prerequisite_course').first()
-            if prereq_rel:
-                current = prereq_rel.prerequisite_course
-            else:
-                break
+            ).select_related('prerequisite_course'):
+                if prereq_rel.prerequisite_course.id not in visited:
+                    queue.append(prereq_rel.prerequisite_course)
         return False
 
     def save(self, *args, **kwargs):
@@ -397,7 +401,7 @@ class Badge(models.Model):
 
     def get_absolute_url(self):
         from django.urls import reverse
-        return reverse('badge_detail', args=[self.id])
+        return reverse('course-detail', args=[self.course.id])
 
 
 def check_course_completion(course, user):
@@ -417,12 +421,12 @@ def check_course_completion(course, user):
     if total_materials == 0:
         return False, 0
     
-    # Check user's progress - materials they've accessed via UserSession
-    from accounts.models import UserSession
-    accessed_materials = UserSession.objects.filter(
+    # Check user's progress - materials they've accessed via ActivityLog
+    from accounts.models import ActivityLog
+    accessed_materials = ActivityLog.objects.filter(
         user=user,
         resource_type='material',
-        resource_id__in=[m.id for m in all_materials]
+        resource_id__in=[str(m.id) for m in all_materials]
     ).values('resource_id').distinct()
     
     accessed_ids = set(s['resource_id'] for s in accessed_materials)
@@ -435,11 +439,9 @@ def check_course_completion(course, user):
 
 def send_course_reminders():
     """Send reminder emails to students who haven't completed their courses."""
-    from django.core.mail import send_mail
-    from django.template.loader import render_to_string
     from django.conf import settings
     from datetime import timedelta
-    from .models import Course, UserSession
+    from accounts.models import ActivityLog, User as CustomUser
     
     now = timezone.now()
     one_week_ago = now - timedelta(days=7)
@@ -448,37 +450,52 @@ def send_course_reminders():
     courses = Course.objects.filter(status='published')
     
     for course in courses:
-        # Get students enrolled in this course
-        enrolled_users = UserSession.objects.filter(
+        # Get students who accessed this course recently via ActivityLog
+        enrolled_users = ActivityLog.objects.filter(
+            user__isnull=False,
             resource_type='course',
-            resource_id=course.id,
+            resource_id=str(course.id),
             created_at__gt=one_week_ago
         ).values('user').distinct()
         
         for session in enrolled_users:
-            from accounts.models import User as CustomUser
-            user = CustomUser.objects.get(pk=session['user'])
+            try:
+                user = CustomUser.objects.get(pk=session['user'])
+            except CustomUser.DoesNotExist:
+                continue
+            
+            # Skip users who don't have a role yet (not onboarded)
+            if not user.role:
+                continue
             
             # Check if user has completed this course
             is_complete, completed = check_course_completion(course, user)
             
             if not is_complete:
-                # Send reminder
-                context = {
-                    'user': user,
-                    'course': course,
-                    'completed': completed,
-                    'total': CourseMaterial.objects.filter(
-                        models.Q(course=course) | models.Q(chapter__course=course)
-                    ).distinct().count(),
-                }
+                total = CourseMaterial.objects.filter(
+                    models.Q(course=course) | models.Q(chapter__course=course)
+                ).distinct().count()
                 
-                html_message = render_to_string('emails/course_reminder.html', context)
-                
-                send_mail(
-                    subject=f'Remember: Continue {course.title}',
-                    message='',
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    html_message=html_message,
-                )
+                subject = f'Remember: Continue {course.title}'
+                message = f'''
+Hello {user.first_name or user.email},
+
+You recently started {course.title} but haven't finished it yet.
+You have completed {completed} of {total} materials.
+
+Keep learning at {settings.FRONTEND_URL}
+
+Best regards,
+The Learnwise Team
+'''.strip()
+
+                try:
+                    send_mail(
+                        subject=subject,
+                        message=message,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        recipient_list=[user.email],
+                        fail_silently=True,
+                    )
+                except Exception:
+                    logger.exception('Failed to send course reminder to %s', user.email)

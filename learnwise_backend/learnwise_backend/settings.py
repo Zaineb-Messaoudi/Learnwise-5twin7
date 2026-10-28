@@ -17,17 +17,12 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load environment variables from .env file
-load_dotenv(BASE_DIR / '.env', override=True)
-
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+# Load environment variables from .env file (.env does not override real environment variables)
+load_dotenv(BASE_DIR / '.env', override=False)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
-
-# SECURITY WARNING: keep the secret key used in production secret!
+_DEBUG_RAW = os.getenv('DEBUG', 'False')
+DEBUG = str(_DEBUG_RAW).lower() not in ('false', '0', 'no', 'off', '')
 _DEV_SECRET_KEY = 'django-insecure-9!@nl_9!^3mu4em%$)p=i0-q=@4-9(ho_s*h2$+i+mt)*@zqgg'
 SECRET_KEY = os.getenv('SECRET_KEY', _DEV_SECRET_KEY)
 if not DEBUG and SECRET_KEY == _DEV_SECRET_KEY:
@@ -173,6 +168,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -202,20 +198,22 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         # Anonymous calls are counted per IP: a campus/NAT address is shared by many
         # students, so keep this generous and rely on the per-scope limits below.
-        'anon': '5000/day',
-        'user': '5000/day',
+        'anon': '10000/day',
+        'user': '10000/day',
         'login': '10/minute',
         'register': '5/minute',
         'social': '20/minute',
         'face_verify': '10/minute',
         '2fa': '10/minute',
         'verify_code': '5/minute',
+        'step_up': '5/minute',
         'password_reset': '5/hour',
         'resend_verification': '5/hour',
         'token_refresh': '120/minute',
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
+    'PAGE_SIZE': 100,
+    'EXCEPTION_HANDLER': 'accounts.exceptions.api_exception_handler',
 }
 
 # SimpleJWT
@@ -271,11 +269,27 @@ else:
         )
 
 # Channels / WebSockets
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [REDIS_URL],
+            },
+        }
     }
-}
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }
+    if not DEBUG:
+        raise RuntimeError(
+            'REDIS_URL is not set: WebSocket presence requires Redis in production. '
+            'Set REDIS_URL environment variable to a Redis instance. '
+            'InMemoryChannelLayer is not shared across workers.'
+        )
 
 # Media files
 MEDIA_URL = '/media/'
@@ -341,5 +355,12 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
     # Uncomment when running behind a TLS-terminating reverse proxy:
-    # SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Test settings: use temp directories for media and private exports so tests
+# don't write into the real media/ or private/ folders.
+import sys, tempfile
+if 'test' in sys.argv or 'pytest' in sys.modules:
+    MEDIA_ROOT = tempfile.mkdtemp(prefix='learnwise_test_media_')
+    PRIVATE_ROOT = tempfile.mkdtemp(prefix='learnwise_test_private_')
 

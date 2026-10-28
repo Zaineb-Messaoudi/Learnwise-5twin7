@@ -9,12 +9,15 @@ import os
 from django.core.asgi import get_asgi_application
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
-from content.routing import websocket_urlpatterns
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'learnwise_backend.settings')
 
+# Django must be fully set up before importing app routing modules that touch models.
+django_app = get_asgi_application()
+from content.routing import websocket_urlpatterns  # noqa: E402
+
 application = ProtocolTypeRouter({
-    "http": get_asgi_application(),
+    "http": django_app,
     "websocket": AuthMiddlewareStack(
         URLRouter(websocket_urlpatterns)
     ),

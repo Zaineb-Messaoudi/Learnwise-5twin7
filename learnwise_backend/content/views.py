@@ -63,6 +63,10 @@ class CourseViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(Q(owner=user) | Q(status='published'))
             else:
                 qs = qs.filter(owner=user)
+        elif not user.role:
+            # role=None (not onboarded) sees nothing
+            qs = qs.none()
+        # admin/superuser sees everything (qs already unfiltered)
 
         if search:
             qs = qs.filter(Q(title__icontains=search) | Q(description__icontains=search))
@@ -77,6 +81,13 @@ class CourseViewSet(viewsets.ModelViewSet):
         course = self.get_object()
         if course.owner != self.request.user and not self.request.user.is_superuser:
             raise PermissionDenied("Vous n'êtes pas le propriétaire de ce cours.")
+        # Prevent bypassing the review workflow: only admins can publish directly.
+        # Professors must use submit_for_review -> approve.
+        if 'status' in serializer.validated_data:
+            new_status = serializer.validated_data['status']
+            if new_status == 'published' and course.status != 'published':
+                if not (self.request.user.is_superuser or self.request.user.role == 'admin'):
+                    raise PermissionDenied("Seuls les administrateurs peuvent publier directement. Utilisez 'submit_for_review'.")
         serializer.save()
 
     def perform_destroy(self, instance):
@@ -381,8 +392,10 @@ class CourseViewSet(viewsets.ModelViewSet):
                 if material.file:
                     try:
                         mat_entry['file_name'] = material.file.name
-                        zf.write(material.file.path, arcname=f"files/{material.file.name}")
-                    except (FileNotFoundError, ValueError):
+                        # Use file.open() instead of .path for S3-compatible storage
+                        with material.file.open('rb') as f:
+                            zf.writestr(f"files/{material.file.name}", f.read())
+                    except (FileNotFoundError, ValueError, NotImplementedError):
                         pass
                 materials_data.append(mat_entry)
             zf.writestr('materials.json', json.dumps(materials_data, indent=2, ensure_ascii=False))
@@ -460,6 +473,9 @@ class ChapterViewSet(viewsets.ModelViewSet):
             qs = qs.filter(course__status='published')
         elif user.role == 'professeur':
             qs = qs.filter(Q(course__owner=user) | Q(course__status='published'))
+        elif not user.role:
+            qs = qs.none()
+        # admin/superuser sees everything
 
         return qs.distinct()
 
@@ -474,6 +490,11 @@ class ChapterViewSet(viewsets.ModelViewSet):
         chapter = self.get_object()
         if chapter.course.owner != self.request.user and not self.request.user.is_superuser:
             raise PermissionDenied("Non autorisé.")
+        # Prevent moving a chapter to another professor's course
+        if 'course' in serializer.validated_data:
+            new_course = serializer.validated_data['course']
+            if new_course.id != chapter.course.id and new_course.owner != self.request.user and not self.request.user.is_superuser:
+                raise PermissionDenied("Vous ne pouvez pas déplacer ce chapitre vers le cours d'un autre professeur.")
         serializer.save()
 
     def perform_destroy(self, instance):
@@ -526,6 +547,9 @@ class CourseMaterialViewSet(viewsets.ModelViewSet):
             qs = qs.filter(course__status='published')
         elif user.role == 'professeur':
             qs = qs.filter(Q(course__owner=user) | Q(course__status='published'))
+        elif not user.role:
+            qs = qs.none()
+        # admin/superuser sees everything
 
         return qs.distinct()
 
@@ -545,6 +569,12 @@ class CourseMaterialViewSet(viewsets.ModelViewSet):
         material = self.get_object()
         if material.course.owner != self.request.user and not self.request.user.is_superuser:
             raise PermissionDenied("Non autorisé.")
+
+        # Prevent moving a material to another professor's course
+        if 'course' in serializer.validated_data:
+            new_course = serializer.validated_data['course']
+            if new_course.id != material.course.id and new_course.owner != self.request.user and not self.request.user.is_superuser:
+                raise PermissionDenied("Vous ne pouvez pas déplacer ce matériel vers le cours d'un autre professeur.")
 
         chapter = serializer.validated_data.get('chapter')
         if chapter and chapter.course_id != material.course_id:
@@ -586,7 +616,10 @@ class CourseMaterialViewSet(viewsets.ModelViewSet):
         if user.role == 'professeur' and material.course.owner != user and not user.is_superuser:
             return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
         try:
-            response = FileResponse(material.file.open('rb'), as_attachment=True, filename=material.title)
+            import os
+            ext = os.path.splitext(material.file.name)[1]
+            filename = material.title + (ext if ext and not material.title.endswith(ext) else '')
+            response = FileResponse(material.file.open('rb'), as_attachment=True, filename=filename)
             return response
         except FileNotFoundError:
             raise Http404("Fichier introuvable sur le disque.")
@@ -612,11 +645,38 @@ class AudioMaterialViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = AudioMaterial.objects.all()
+        qs = AudioMaterial.objects.select_related('material__course', 'material__course__owner').all()
         material_id = self.request.query_params.get('material')
         if material_id:
             qs = qs.filter(material_id=material_id)
-        return qs
+
+        user = self.request.user
+        if user.role == 'etudiant':
+            qs = qs.filter(material__course__status='published')
+        elif user.role == 'professeur':
+            qs = qs.filter(Q(material__course__owner=user) | Q(material__course__status='published'))
+        elif not user.role:
+            qs = qs.none()
+        return qs.distinct()
+
+    def _check_material_owner(self, material, user):
+        if material.course.owner != user and not user.is_superuser:
+            raise PermissionDenied("Non autorisé sur ce matériel.")
+
+    def perform_create(self, serializer):
+        _require_professor_or_admin(self.request.user)
+        material = get_object_or_404(CourseMaterial, pk=serializer.validated_data['material'].pk)
+        self._check_material_owner(material, self.request.user)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        obj = self.get_object()
+        self._check_material_owner(obj.material, self.request.user)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._check_material_owner(instance.material, self.request.user)
+        instance.delete()
 
     def create(self, request, *args, **kwargs):
         try:
@@ -642,11 +702,38 @@ class DocumentMaterialViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = DocumentMaterial.objects.all()
+        qs = DocumentMaterial.objects.select_related('material__course', 'material__course__owner').all()
         material_id = self.request.query_params.get('material')
         if material_id:
             qs = qs.filter(material_id=material_id)
-        return qs
+
+        user = self.request.user
+        if user.role == 'etudiant':
+            qs = qs.filter(material__course__status='published')
+        elif user.role == 'professeur':
+            qs = qs.filter(Q(material__course__owner=user) | Q(material__course__status='published'))
+        elif not user.role:
+            qs = qs.none()
+        return qs.distinct()
+
+    def _check_material_owner(self, material, user):
+        if material.course.owner != user and not user.is_superuser:
+            raise PermissionDenied("Non autorisé sur ce matériel.")
+
+    def perform_create(self, serializer):
+        _require_professor_or_admin(self.request.user)
+        material = get_object_or_404(CourseMaterial, pk=serializer.validated_data['material'].pk)
+        self._check_material_owner(material, self.request.user)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        obj = self.get_object()
+        self._check_material_owner(obj.material, self.request.user)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._check_material_owner(instance.material, self.request.user)
+        instance.delete()
 
     def create(self, request, *args, **kwargs):
         try:
@@ -672,11 +759,38 @@ class VideoMaterialViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = VideoMaterial.objects.all()
+        qs = VideoMaterial.objects.select_related('material__course', 'material__course__owner').all()
         material_id = self.request.query_params.get('material')
         if material_id:
             qs = qs.filter(material_id=material_id)
-        return qs
+
+        user = self.request.user
+        if user.role == 'etudiant':
+            qs = qs.filter(material__course__status='published')
+        elif user.role == 'professeur':
+            qs = qs.filter(Q(material__course__owner=user) | Q(material__course__status='published'))
+        elif not user.role:
+            qs = qs.none()
+        return qs.distinct()
+
+    def _check_material_owner(self, material, user):
+        if material.course.owner != user and not user.is_superuser:
+            raise PermissionDenied("Non autorisé sur ce matériel.")
+
+    def perform_create(self, serializer):
+        _require_professor_or_admin(self.request.user)
+        material = get_object_or_404(CourseMaterial, pk=serializer.validated_data['material'].pk)
+        self._check_material_owner(material, self.request.user)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        obj = self.get_object()
+        self._check_material_owner(obj.material, self.request.user)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._check_material_owner(instance.material, self.request.user)
+        instance.delete()
 
     def create(self, request, *args, **kwargs):
         try:
@@ -702,11 +816,38 @@ class TranscriptionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = Transcription.objects.all()
+        qs = Transcription.objects.select_related('material__course', 'material__course__owner').all()
         material_id = self.request.query_params.get('material')
         if material_id:
             qs = qs.filter(material_id=material_id)
-        return qs
+
+        user = self.request.user
+        if user.role == 'etudiant':
+            qs = qs.filter(material__course__status='published')
+        elif user.role == 'professeur':
+            qs = qs.filter(Q(material__course__owner=user) | Q(material__course__status='published'))
+        elif not user.role:
+            qs = qs.none()
+        return qs.distinct()
+
+    def _check_material_owner(self, material, user):
+        if material.course.owner != user and not user.is_superuser:
+            raise PermissionDenied("Non autorisé sur ce matériel.")
+
+    def perform_create(self, serializer):
+        _require_professor_or_admin(self.request.user)
+        material = get_object_or_404(CourseMaterial, pk=serializer.validated_data['material'].pk)
+        self._check_material_owner(material, self.request.user)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        obj = self.get_object()
+        self._check_material_owner(obj.material, self.request.user)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._check_material_owner(instance.material, self.request.user)
+        instance.delete()
 
     def create(self, request, *args, **kwargs):
         try:
@@ -732,11 +873,38 @@ class SummaryViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = Summary.objects.all()
+        qs = Summary.objects.select_related('material__course', 'material__course__owner').all()
         material_id = self.request.query_params.get('material')
         if material_id:
             qs = qs.filter(material_id=material_id)
-        return qs
+
+        user = self.request.user
+        if user.role == 'etudiant':
+            qs = qs.filter(material__course__status='published')
+        elif user.role == 'professeur':
+            qs = qs.filter(Q(material__course__owner=user) | Q(material__course__status='published'))
+        elif not user.role:
+            qs = qs.none()
+        return qs.distinct()
+
+    def _check_material_owner(self, material, user):
+        if material.course.owner != user and not user.is_superuser:
+            raise PermissionDenied("Non autorisé sur ce matériel.")
+
+    def perform_create(self, serializer):
+        _require_professor_or_admin(self.request.user)
+        material = get_object_or_404(CourseMaterial, pk=serializer.validated_data['material'].pk)
+        self._check_material_owner(material, self.request.user)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        obj = self.get_object()
+        self._check_material_owner(obj.material, self.request.user)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._check_material_owner(instance.material, self.request.user)
+        instance.delete()
 
     def create(self, request, *args, **kwargs):
         try:

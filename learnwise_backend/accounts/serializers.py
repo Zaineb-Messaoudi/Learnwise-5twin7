@@ -16,6 +16,7 @@ from .models import (
     AccountDeletionRequest,
     TermsVersion,
     FaceProfile,
+    SocialAccount,
 )
 
 User = get_user_model()
@@ -91,15 +92,21 @@ class UserProfileSerializer(serializers.ModelSerializer):
     terms_accepted = serializers.SerializerMethodField()
     privacy_accepted = serializers.SerializerMethodField()
     marketing_consent = serializers.BooleanField(required=False)
+    role = serializers.CharField(read_only=True)
+    has_password = serializers.SerializerMethodField(read_only=True)
+    needs_onboarding = serializers.SerializerMethodField(read_only=True)
+    two_factor_enabled = serializers.BooleanField(read_only=True)
+    email_verified = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'username', 'first_name', 'last_name', 'name',
             'avatar', 'avatar_url', 'phone', 'bio', 'email_verified',
+            'role', 'has_password', 'needs_onboarding', 'two_factor_enabled',
             'terms_accepted', 'privacy_accepted', 'marketing_consent',
         ]
-        read_only_fields = ['id', 'email', 'email_verified']
+        read_only_fields = ['id', 'email', 'email_verified', 'role', 'has_password', 'needs_onboarding', 'two_factor_enabled']
 
     def validate_avatar(self, value):
         if value and value.size > 5 * 1024 * 1024:
@@ -112,12 +119,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
         return value
 
     def validate_first_name(self, value):
-        if value and not re.fullmatch(r'^[A-Za-zÀ-ÖØ-öø-ÿ\u00C0-\u00FF\s\'\-]{0,50}$', value):
+        if value and not re.fullmatch(r'^[\w\s\'\-.\u2019]{0,50}$', value, re.UNICODE):
             raise serializers.ValidationError('First name contains invalid characters.')
         return value
 
     def validate_last_name(self, value):
-        if value and not re.fullmatch(r'^[A-Za-zÀ-ÖØ-öø-ÿ\u00C0-\u00FF\s\'\-]{0,50}$', value):
+        if value and not re.fullmatch(r'^[\w\s\'\-.\u2019]{0,50}$', value, re.UNICODE):
             raise serializers.ValidationError('Last name contains invalid characters.')
         return value
 
@@ -145,6 +152,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     def get_privacy_accepted(self, obj):
         return obj.privacy_accepted_at is not None
+
+    def get_has_password(self, obj):
+        return obj.has_usable_password()
+
+    def get_needs_onboarding(self, obj):
+        return obj.needs_onboarding()
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -285,6 +298,7 @@ class EmailVerificationSerializer(serializers.Serializer):
 
 
 class EmailVerifyCodeSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
     code = serializers.RegexField(
         regex=r'^\d{6}$',
         max_length=6,
@@ -386,6 +400,7 @@ class TwoFactorDisableSerializer(serializers.Serializer):
 
 class EmailChangeRequestSerializer(serializers.Serializer):
     new_email = serializers.EmailField()
+    current_password = serializers.CharField(required=False, write_only=True)
 
     def validate_new_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
@@ -639,4 +654,11 @@ class FaceProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = FaceProfile
         fields = ['id', 'quality_score', 'enrollment_image', 'is_verified', 'verified_at', 'created_at']
+        read_only_fields = fields
+
+
+class SocialAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SocialAccount
+        fields = ['id', 'provider', 'provider_user_id', 'created_at']
         read_only_fields = fields

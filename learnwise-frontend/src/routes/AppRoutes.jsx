@@ -11,6 +11,7 @@ const AuthPage = lazy(() => import('../features/auth/pages/AuthPage').then(modul
 const FaceCapturePage = lazy(() => import('../features/auth/pages/FaceCapturePage').then(module => ({ default: module.FaceCapturePage })));
 const CompleteProfilePage = lazy(() => import('../features/auth/pages/CompleteProfilePage').then(module => ({ default: module.CompleteProfilePage })));
 const SocialCallbackPage = lazy(() => import('../features/auth/pages/SocialCallbackPage').then(module => ({ default: module.SocialCallbackPage })));
+const EmailVerificationPage = lazy(() => import('../features/auth/pages/EmailVerificationPage').then(module => ({ default: module.EmailVerificationPage })));
 const LegalPage = lazy(() => import('../features/public/pages/LegalPage').then(module => ({ default: module.LegalPage })));
 const EducatorLandingPage = lazy(() => import('../features/public/pages/EducatorLandingPage').then(module => ({ default: module.EducatorLandingPage })));
 const StudentDashboard = lazy(() => import('../features/student/pages/StudentDashboard').then(module => ({ default: module.StudentDashboard })));

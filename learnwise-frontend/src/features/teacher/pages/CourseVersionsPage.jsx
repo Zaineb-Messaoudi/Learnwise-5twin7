@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { CheckCircle, Loader2, FileText, Calendar, Trash, Edit } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { isBackendApiEnabled } from '../../../api/client';
 import { coursesApi } from '../../../api/courses.api';
 import { AppShell } from '../../../layouts/AppShell';
-import { Button, ProgressBar } from '../../../components/shared/Primitives';
+import { Button, ProgressBar, PageHeader } from '../../../components/shared/Primitives';
 import { ErrorState, LoadingState, EmptyState } from '../../../components/ui/States';
 import '../../student/components/courses.css';
 

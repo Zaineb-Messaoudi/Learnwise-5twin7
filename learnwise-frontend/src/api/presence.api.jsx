@@ -46,11 +46,9 @@ export function usePresence(courseId, options = {}) {
 
     // Connect to WebSocket
     React.useEffect(() => {
-        const token = window.localStorage.getItem('learnwise:access-token');
-        const url = token
-            ? `ws://localhost:8000/ws/content/courses/${courseId}/presence/?token=${token}`
-            : `ws://localhost:8000/ws/content/courses/${courseId}/presence/`;
-        wsRef.current = createWebSocket(url);
+    const token = window.localStorage.getItem('learnwise:access-token');
+    const path = `/ws/content/courses/${courseId}/presence/?token=${token || ''}`;
+    wsRef.current = createWebSocket(path);
 
         wsRef.current.onopen = () => {
             setState(STATE_OPEN);
@@ -99,20 +97,24 @@ export function usePresence(courseId, options = {}) {
             if (onStateChange) onStateChange(STATE_CLOSED);
 
             // Attempt reconnection after 3 seconds
-            setTimeout(() => {
+            const reconnectTimer = setTimeout(() => {
                 if (state === STATE_CLOSED) {
-                    // Reconnect - will be handled by useEffect re-run
+                    // Reconnect by letting useEffect re-run
+                    // The courseId dependency will trigger reconnection
                 }
             }, 3000);
+            return () => clearTimeout(reconnectTimer);
         };
 
         // Cleanup on unmount
         return () => {
-            if (wsRef.current) {
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                 wsRef.current.send(JSON.stringify({
                     type: MESSAGE_LEAVE,
                     courseId: courseId
                 }));
+            }
+            if (wsRef.current) {
                 wsRef.current.close();
             }
             if (heartbeatRef.current) {

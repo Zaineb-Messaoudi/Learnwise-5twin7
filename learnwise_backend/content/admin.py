@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary, CoursePresence, CourseVersion, CoursePrerequisite
+from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary, CoursePresence, CourseVersion, CoursePrerequisite, Badge
 
 
 @admin.register(Course)
@@ -82,3 +82,11 @@ class CoursePrerequisiteAdmin(admin.ModelAdmin):
     list_display = ['course', 'prerequisite_course', 'created_at']
     list_filter = ['course', 'prerequisite_course', 'created_at']
     search_fields = ['course__title', 'prerequisite_course__title']
+
+
+@admin.register(Badge)
+class BadgeAdmin(admin.ModelAdmin):
+    list_display = ['name', 'user', 'course', 'awarded_at']
+    list_filter = ['course', 'awarded_at']
+    search_fields = ['name', 'user__email', 'course__title']
+    readonly_fields = ['awarded_at', 'created_at']
