@@ -9,7 +9,7 @@ export const quizzesApi = {
     publish: (id) => apiRequest(`/assessment/quizzes/${id}/publish/`, { method: 'POST' }),
     attempts: (id) => apiRequest(`/assessment/quizzes/${id}/attempts/`),
     startAttempt: (id) => apiRequest(`/assessment/quizzes/${id}/attempts/`, { method: 'POST', body: { answers: {} } }),
-    saveAttempt: (id, attemptId, answers) => apiRequest(`/assessment/quizzes/${id}/attempts/${attemptId}/`, { method: 'PATCH', body: { answers } }),
+    saveAttempt: (id, attemptId, answers) => apiRequest(`/assessment/quizzes/${id}/attempts/${attemptId}/submit/`, { method: 'POST', body: { answers } }),
     submit: (id, attemptId, answers) => apiRequest(`/assessment/quizzes/${id}/attempts/${attemptId}/submit/`, { method: 'POST', body: { answers } }),
     result: (id, attemptId) => apiRequest(`/assessment/quizzes/${id}/attempts/${attemptId}/evaluation/`),
 };

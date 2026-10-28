@@ -1,20 +1,23 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
+
 from . import views
 
 router = DefaultRouter()
-router.register("learning-paths", views.LearningPathViewSet)
-router.register("enrollments", views.EnrollmentViewSet)
-router.register("learning-sessions", views.LearningSessionViewSet)
-router.register("learning-activities", views.LearningActivityViewSet)
-router.register("progress", views.ProgressViewSet)
-router.register("performance", views.PerformanceViewSet)
-router.register("achievements", views.AchievementViewSet)
+router.register("learning-paths", views.LearningPathViewSet, basename="learning-path")
+router.register("enrollments", views.EnrollmentViewSet, basename="enrollment")
+router.register("learning-sessions", views.LearningSessionViewSet, basename="learning-session")
+router.register("learning-activities", views.LearningActivityViewSet, basename="learning-activity")
+router.register("progress", views.ProgressViewSet, basename="progress")
+router.register("performance", views.PerformanceViewSet, basename="performance")
+router.register("achievements", views.AchievementViewSet, basename="achievement")
 
 urlpatterns = [
     path("", include(router.urls)),
     path("dashboard/", views.dashboard, name="analytics-dashboard"),
     path("student/overview/", views.dashboard, name="student-overview"),
+    path("teacher/overview/", views.teacher_overview, name="teacher-overview"),
+    path("admin/overview/", views.admin_overview, name="admin-overview"),
     path("recommendations/", views.recommendations, name="recommendations"),
     path("student/indicators/", views.student_indicators, name="student-indicators"),
     path("student/weaknesses/", views.weaknesses, name="student-weaknesses"),

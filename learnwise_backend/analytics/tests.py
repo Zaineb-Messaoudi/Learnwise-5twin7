@@ -1,5 +1,6 @@
 from datetime import timedelta
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -18,7 +19,12 @@ class AnalyticsTests(TestCase):
         self.user = get_user_model().objects.create_user(username="student", email="student@example.com", password="secret", role="etudiant")
         self.other = get_user_model().objects.create_user(username="other", email="other@example.com", password="secret", role="etudiant")
         self.course = Course.objects.create(title="Django", description="API", level="beginner", language="fr")
-        CourseMaterial.objects.create(course=self.course, title="Intro", file="test.pdf", material_type="pdf")
+        CourseMaterial.objects.create(
+            course=self.course,
+            title="Intro",
+            file=SimpleUploadedFile("test.pdf", b"analytics test material", content_type="application/pdf"),
+            material_type="pdf",
+        )
         self.client = APIClient()
         self.client.force_authenticate(self.user)
     def test_enrollment_is_scoped_and_creates_progress(self):

@@ -17,17 +17,12 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load environment variables from .env file
+# Load environment variables from .env file (.env does not override real environment variables)
 load_dotenv(BASE_DIR / '.env', override=False)
 
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
-
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
-
-# SECURITY WARNING: keep the secret key used in production secret!
+_DEBUG_RAW = os.getenv('DEBUG', 'False')
+DEBUG = str(_DEBUG_RAW).lower() not in ('false', '0', 'no', 'off', '')
 _DEV_SECRET_KEY = 'django-insecure-9!@nl_9!^3mu4em%$)p=i0-q=@4-9(ho_s*h2$+i+mt)*@zqgg'
 SECRET_KEY = os.getenv('SECRET_KEY', _DEV_SECRET_KEY)
 if not DEBUG and SECRET_KEY == _DEV_SECRET_KEY:
@@ -98,13 +93,13 @@ WSGI_APPLICATION = 'learnwise_backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DB_CONNECTION = os.getenv('DB_CONNECTION', 'sqlite')
+DB_CONNECTION = os.getenv('DB_CONNECTION', 'mysql')
 
 if DB_CONNECTION == 'mysql':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
-            'NAME': os.getenv('DB_DATABASE', 'Learnwise'),
+            'NAME': os.getenv('DB_DATABASE', 'learnwise'),
             'USER': os.getenv('DB_USERNAME', 'root'),
             'PASSWORD': os.getenv('DB_PASSWORD', ''),
             'HOST': os.getenv('DB_HOST', 'localhost'),
@@ -125,6 +120,17 @@ else:
             'CONN_MAX_AGE': 60,
         }
     }
+
+# Content app — file upload validation (free local storage, no credit card)
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 Mo max par fichier
+ALLOWED_MATERIAL_EXTENSIONS = [
+    '.pdf', '.doc', '.docx', '.ppt', '.pptx',
+    '.mp3', '.wav', '.ogg', '.m4a',
+    '.mp4', '.mov', '.avi',
+    '.zip', '.rar', '.7z',
+    '.jpg', '.jpeg', '.png', '.gif', '.webp',
+    '.txt', '.csv', '.xlsx',
+]
 
 
 # Password validation
@@ -162,6 +168,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -191,20 +198,22 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         # Anonymous calls are counted per IP: a campus/NAT address is shared by many
         # students, so keep this generous and rely on the per-scope limits below.
-        'anon': '5000/day',
-        'user': '5000/day',
+        'anon': '10000/day',
+        'user': '10000/day',
         'login': '10/minute',
         'register': '5/minute',
         'social': '20/minute',
         'face_verify': '10/minute',
         '2fa': '10/minute',
         'verify_code': '5/minute',
+        'step_up': '5/minute',
         'password_reset': '5/hour',
         'resend_verification': '5/hour',
         'token_refresh': '120/minute',
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
+    'PAGE_SIZE': 100,
+    'EXCEPTION_HANDLER': 'accounts.exceptions.api_exception_handler',
 }
 
 # SimpleJWT
@@ -260,19 +269,55 @@ else:
         )
 
 # Channels / WebSockets
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {'hosts': [REDIS_URL]},
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [REDIS_URL],
+            },
+        }
     }
-} if REDIS_URL else {
-    # Suitable for local development and tests only; production requires REDIS_URL above.
-    'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}
-}
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }
+    if not DEBUG:
+        raise RuntimeError(
+            'REDIS_URL is not set: WebSocket presence requires Redis in production. '
+            'Set REDIS_URL environment variable to a Redis instance. '
+            'InMemoryChannelLayer is not shared across workers.'
+        )
 
 # Media files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# --- Supabase Storage (S3-compatible, gratuit, sans carte bancaire) ---
+USE_S3 = os.getenv('USE_S3', 'False').lower() == 'true'
+
+if USE_S3:
+    if 'storages' not in INSTALLED_APPS:
+        INSTALLED_APPS += ['storages']
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+            "OPTIONS": {
+                "access_key": os.getenv('SUPABASE_PUBLISHED_KEY'),
+                "secret_key": os.getenv('SUPABASE_SECRET_KEY'),
+                "bucket_name": os.getenv('SUPABASE_BUCKET', 'course-materials'),
+                "endpoint_url": (os.getenv('SUPABASE_PROJECT_URL', '').rstrip('/') + '/storage/v1/s3') if os.getenv('SUPABASE_PROJECT_URL') else None,
+                "region_name": os.getenv('SUPABASE_REGION', 'us-east-1'),
+                "file_overwrite": False,
+                "default_acl": None,
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
 
 # Frontend URL for email links
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
@@ -310,5 +355,12 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
     # Uncomment when running behind a TLS-terminating reverse proxy:
-    # SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Test settings: use temp directories for media and private exports so tests
+# don't write into the real media/ or private/ folders.
+import sys, tempfile
+if 'test' in sys.argv or 'pytest' in sys.modules:
+    MEDIA_ROOT = tempfile.mkdtemp(prefix='learnwise_test_media_')
+    PRIVATE_ROOT = tempfile.mkdtemp(prefix='learnwise_test_private_')
 

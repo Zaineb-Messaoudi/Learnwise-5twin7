@@ -5,5 +5,5 @@ export const exercisesApi = {
     create: (payload) => apiRequest('/assessment/exercises/', { method: 'POST', body: payload }),
     update: (id, payload) => apiRequest(`/assessment/exercises/${id}/`, { method: 'PATCH', body: payload }),
     publish: (id) => apiRequest(`/assessment/exercises/${id}/publish/`, { method: 'POST' }),
-    submit: (id, answer) => apiRequest(`/assessment/exercises/${id}/submissions/`, { method: 'POST', body: { answer } }),
+    submit: (id, answer) => apiRequest(`/assessment/exercises/${id}/submit/`, { method: 'POST', body: { answer } }),
 };

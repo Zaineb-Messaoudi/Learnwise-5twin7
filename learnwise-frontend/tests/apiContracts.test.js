@@ -19,20 +19,20 @@ describe('frontend API module ownership and contracts', () => {
     const file = new File(['pdf'], 'notes.pdf', { type: 'application/pdf' });
     materialsApi.upload('course-1', file, { kind: 'document' });
     const [path, options] = apiRequest.mock.calls.at(-1);
-    expect(path).toBe('/content/courses/course-1/materials/');
+    expect(path).toBe('/content/materials/');
     expect(options.body).toBeInstanceOf(FormData);
     expect(options.body.get('file')).toBe(file);
   });
 
   test('assistant voice and conversation operations stay in the assistant namespace', () => {
     assistantApi.ask('session-1', { content: 'Explain gradients' });
-    expect(apiRequest).toHaveBeenLastCalledWith('/assistant/sessions/session-1/messages/', { method: 'POST', body: { content: 'Explain gradients' } });
+    expect(apiRequest).toHaveBeenLastCalledWith('/ai/sessions/session-1/messages/', { method: 'POST', body: { content: 'Explain gradients' } });
     expect(assistantApi.socketPath('session-1')).toBe('/ws/assistant/sessions/session-1/');
   });
 
   test('assessment attempts keep answer saving and submission separate', () => {
     quizzesApi.saveAttempt('quiz-1', 'attempt-1', { q1: 'c1' });
-    expect(apiRequest).toHaveBeenLastCalledWith('/assessment/quizzes/quiz-1/attempts/attempt-1/', { method: 'PATCH', body: { answers: { q1: 'c1' } } });
+    expect(apiRequest).toHaveBeenLastCalledWith('/assessment/quizzes/quiz-1/attempts/attempt-1/submit/', { method: 'POST', body: { answers: { q1: 'c1' } } });
     quizzesApi.submit('quiz-1', 'attempt-1', { q1: 'c1' });
     expect(apiRequest).toHaveBeenLastCalledWith('/assessment/quizzes/quiz-1/attempts/attempt-1/submit/', { method: 'POST', body: { answers: { q1: 'c1' } } });
     exercisesApi.publish('exercise-1');
@@ -43,9 +43,9 @@ describe('frontend API module ownership and contracts', () => {
     analyticsApi.learningPaths();
     expect(apiRequest).toHaveBeenLastCalledWith('/analytics/learning-paths/');
     analyticsApi.startLearningSession('course-1');
-    expect(apiRequest).toHaveBeenLastCalledWith('/analytics/learning-sessions/', { method: 'POST', body: { course_id: 'course-1' } });
+    expect(apiRequest).toHaveBeenLastCalledWith('/analytics/learning-sessions/start/', { method: 'POST', body: { course_id: 'course-1' } });
     analyticsApi.recordActivity({ session_id: 'session-1', course_id: 'course-1', activity_type: 'lesson_started' });
-    expect(apiRequest).toHaveBeenLastCalledWith('/analytics/learning-activities/', { method: 'POST', body: { session_id: 'session-1', course_id: 'course-1', activity_type: 'lesson_started' } });
+    expect(apiRequest).toHaveBeenLastCalledWith('/analytics/learning-activities/record/', { method: 'POST', body: { session: 'session-1', course_id: 'course-1', activity_type: 'lesson_started' } });
     coursesApi.catalog();
     expect(apiRequest).toHaveBeenLastCalledWith('/content/courses/?available=true');
     authApi.register({ email: 'student@example.test', password: 'secure-pass', role: 'student' });

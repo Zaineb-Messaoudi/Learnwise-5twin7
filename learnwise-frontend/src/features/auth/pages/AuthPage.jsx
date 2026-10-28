@@ -292,7 +292,7 @@ export function AuthPage({ register = false }) {
           {error && <p className="form-error" role="alert">{error}</p>}
           <button className="auth-submit" type="submit" disabled={Boolean(loading)}>{loading === 'email' ? 'Connecting…' : loading === 'google' || loading === 'facebook' ? <Loader2 size={16} /> : register ? 'Create my account' : 'Log in'} <ArrowRight size={16} /></button>
         </form>
-        <p className="auth-legal">By continuing, you agree to Learnwise's <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+        <p className="auth-legal">By continuing, you agree to Learnwise&apos;s <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
         <p className="auth-switch">{register ? 'Already have an account?' : 'New to Learnwise?'} <Link to={register ? '/auth/login' : '/auth/register'}>{register ? 'Log in' : 'Create an account'}</Link></p>
         <div className="auth-secure"><Check size={14} /> {isBackendApiEnabled ? 'Secure sign-in through the Learnwise service' : 'Preview sign-in · credentials are not sent to a server'}</div>
       </div>

@@ -11,6 +11,7 @@ const AuthPage = lazy(() => import('../features/auth/pages/AuthPage').then(modul
 const FaceCapturePage = lazy(() => import('../features/auth/pages/FaceCapturePage').then(module => ({ default: module.FaceCapturePage })));
 const CompleteProfilePage = lazy(() => import('../features/auth/pages/CompleteProfilePage').then(module => ({ default: module.CompleteProfilePage })));
 const SocialCallbackPage = lazy(() => import('../features/auth/pages/SocialCallbackPage').then(module => ({ default: module.SocialCallbackPage })));
+const EmailVerificationPage = lazy(() => import('../features/auth/pages/EmailVerificationPage').then(module => ({ default: module.EmailVerificationPage })));
 const LegalPage = lazy(() => import('../features/public/pages/LegalPage').then(module => ({ default: module.LegalPage })));
 const EducatorLandingPage = lazy(() => import('../features/public/pages/EducatorLandingPage').then(module => ({ default: module.EducatorLandingPage })));
 const StudentDashboard = lazy(() => import('../features/student/pages/StudentDashboard').then(module => ({ default: module.StudentDashboard })));
@@ -40,6 +41,14 @@ const AdminContentPage = lazy(() => import('../features/staff/pages/ResourcePage
 const SettingsPage = lazy(() => import('../features/staff/pages/SettingsPage').then(module => ({ default: module.SettingsPage })));
 const CourseDetailPage = lazy(() => import('../features/student/pages/CourseDetailPage').then(module => ({ default: module.CourseDetailPage })));
 const ExerciseDetailPage = lazy(() => import('../features/student/pages/ExerciseDetailPage').then(module => ({ default: module.ExerciseDetailPage })));
+const CourseCreatePage = lazy(() => import('../features/teacher/pages/CourseCreatePage').then(module => ({ default: module.CourseCreatePage })));
+const CourseEditPage = lazy(() => import('../features/teacher/pages/CourseEditPage').then(module => ({ default: module.CourseEditPage })));
+const CourseChaptersPage = lazy(() => import('../features/teacher/pages/CourseChaptersPage').then(module => ({ default: module.CourseChaptersPage })));
+const CourseVersionsPage = lazy(() => import('../features/teacher/pages/CourseVersionsPage').then(module => ({ default: module.CourseVersionsPage })));
+const CourseSchedulePage = lazy(() => import('../features/teacher/pages/CourseSchedulePage').then(module => ({ default: module.CourseSchedulePage })));
+const CoursePrerequisitesPage = lazy(() => import('../features/teacher/pages/CoursePrerequisitesPage').then(module => ({ default: module.CoursePrerequisitesPage })));
+const CourseExportPage = lazy(() => import('../features/teacher/pages/CourseExportPage').then(module => ({ default: module.CourseExportPage })));
+const CourseModerationPage = lazy(() => import('../features/admin/pages/CourseModerationPage').then(module => ({ default: module.CourseModerationPage })));
 const QuizAttemptPage = lazy(() => import('../features/student/pages/QuizAttemptPage').then(module => ({ default: module.QuizAttemptPage })));
 const QuizResultPage = lazy(() => import('../features/student/pages/QuizResultPage').then(module => ({ default: module.QuizResultPage })));
 const QuizOverviewPage = lazy(() => import('../features/student/pages/QuizOverviewPage').then(module => ({ default: module.QuizOverviewPage })));
@@ -125,7 +134,6 @@ function WorkspaceRouter({ role }) {
   if (pathname === '/teacher/students' || /^\/teacher\/students\/[^/]+$/.test(pathname)) return <TeacherStudentsPage />;
   if (pathname === '/teacher/quizzes' || pathname === '/teacher/questions' || pathname === '/teacher/exercises' || pathname === '/teacher/ai-generation') return <AssessmentStudioPage />;
 if (pathname === '/teacher/analytics') return <TeacherAnalyticsPage />;
-    if (pathname === '/teacher/ai-generation') return <TeacherAiGenerationPage />;
     if (pathname === '/teacher/profile') return <EducatorProfilePage />;
     if (pathname === '/teacher/security') return <EducatorSecuritySettingsPage />;
     if (pathname === '/teacher/settings' || pathname === '/teacher/profile') return <SettingsPage role="teacher" />;
@@ -144,7 +152,7 @@ function isKnownWorkspacePath(pathname, role) {
   const patterns = role === 'student'
     ? [/^\/student\/(performance|achievements|sessions|activity|notifications|profile|settings)$/]
     : role === 'teacher'
-      ? [/^\/teacher\/dashboard$/, /^\/teacher\/courses$/, /^\/teacher\/courses\/new$/, /^\/teacher\/courses\/[^/]+(?:\/edit)?$/, /^\/teacher\/(materials|audio-processing|pdf-processing|transcriptions|summaries|ai-generation|quizzes|questions|exercises|analytics|profile|security|settings)$/, /^\/teacher\/students(?:\/[^/]+)?$/]
+      ? [/^\/teacher\/dashboard$/, /^\/teacher\/courses$/, /^\/teacher\/courses\/new$/, /^\/teacher\/courses\/[^/]+(?:\/edit)?$/, /^\/teacher\/courses\/[^/]+\/chapters$/, /^\/teacher\/courses\/[^/]+\/versions$/, /^\/teacher\/courses\/[^/]+\/schedule$/, /^\/teacher\/courses\/[^/]+\/prerequisites$/, /^\/teacher\/courses\/[^/]+\/export$/, /^\/teacher\/(materials|audio-processing|pdf-processing|transcriptions|summaries|ai-generation|quizzes|questions|exercises|analytics|profile|security|settings)$/, /^\/teacher\/students(?:\/[^/]+)?$/]
       : [/^\/admin\/(dashboard|users|students|teachers|courses|quizzes|exercises|ai-usage|analytics|activity|notifications|settings|profile)$/, /^\/admin\/users\/[^/]+$/];
   return patterns.some(pattern => pattern.test(pathname));
 }
@@ -222,6 +230,14 @@ export function CompleteApp() {
     <Route path="/auth/register" element={<AuthPage register />} />
     <Route path="/student/*" element={<WorkspaceRouter role="student" />} />
     <Route path="/teacher/*" element={<WorkspaceRouter role="teacher" />} />
+    <Route path="/teacher/courses/new" element={<CourseCreatePage />} />
+    <Route path="/teacher/courses" element={<CourseManagerPage />} />
+    <Route path="/teacher/courses/:id/edit" element={<CourseEditPage />} />
+    <Route path="/teacher/courses/:id/chapters" element={<CourseChaptersPage />} />
+    <Route path="/teacher/courses/:id/versions" element={<CourseVersionsPage />} />
+    <Route path="/teacher/courses/:id/schedule" element={<CourseSchedulePage />} />
+    <Route path="/teacher/courses/:id/prerequisites" element={<CoursePrerequisitesPage />} />
+    <Route path="/teacher/courses/:id/export" element={<CourseExportPage />} />
     <Route path="/admin/*" element={<WorkspaceRouter role="admin" />} />
     <Route path="/403" element={<NotFound />} />
     <Route path="/404" element={<NotFound />} />
