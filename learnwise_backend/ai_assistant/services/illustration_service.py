@@ -255,7 +255,8 @@ def generate_image(prompt):
             return provider(prompt)
         except AIServiceError as exc:
             last_error = exc
-            logger.warning("Illustration : fournisseur %s indisponible (%s)", name, exc.code)
+            safe_name = name.replace('\r', '').replace('\n', '')
+            logger.warning("Illustration : fournisseur %s indisponible (%s)", safe_name, exc.code)
     # Fallback local : generer un diagramme avec Pillow (aucun appel externe, toujours disponible)
     logger.warning("Illustration : tous les fournisseurs IA indisponibles, utilisation du fallback local Pillow")
     try:
