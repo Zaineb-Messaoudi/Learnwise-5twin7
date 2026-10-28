@@ -63,7 +63,10 @@ class LearningActivity(UUIDModel):
         VOICE_QUESTION = "voice_question", "Voice question"
     session = models.ForeignKey(LearningSession, on_delete=models.CASCADE, related_name="activities")
     activity_type = models.CharField(max_length=40, choices=Type.choices)
-    reference_id = models.UUIDField(null=True, blank=True)
+    material = models.ForeignKey(
+        "content.CourseMaterial", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="learning_activities",
+    )
     started_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
     class Meta:

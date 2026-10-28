@@ -8,12 +8,13 @@ export function useWebSocket(path, enabled = true) {
         if (!enabled)
             return;
         let retryTimer;
+        let retryDelay = 1000;
         let disposed = false;
         const connect = (retrying = false) => {
             setStatus(retrying ? 'reconnecting' : 'connecting');
             const socket = createWebSocket(path);
             socketRef.current = socket;
-            socket.onopen = () => setStatus('connected');
+            socket.onopen = () => { retryDelay = 1000; setStatus('connected'); };
             socket.onmessage = event => {
                 try {
                     setLastMessage(JSON.parse(event.data));
@@ -23,11 +24,14 @@ export function useWebSocket(path, enabled = true) {
                 }
             };
             socket.onerror = () => setStatus('error');
-            socket.onclose = () => {
-                if (!disposed)
-                    retryTimer = window.setTimeout(() => connect(true), 2500);
-                else
+            socket.onclose = event => {
+                const terminal = [4001, 4003, 4004, 4401, 4403, 4404].includes(event.code);
+                if (!disposed && !terminal) {
+                    retryTimer = window.setTimeout(() => connect(true), retryDelay);
+                    retryDelay = Math.min(retryDelay * 2, 30000);
+                } else {
                     setStatus('disconnected');
+                }
             };
         };
         connect();

@@ -1254,7 +1254,7 @@ class EmailChangeRequestView(APIView):
         step_up = require_step_up(request)
         if step_up:
             return step_up
-        serializer = EmailChangeRequestSerializer(data=request.data)
+        serializer = EmailChangeRequestSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         new_email = serializer.validated_data['new_email']
 

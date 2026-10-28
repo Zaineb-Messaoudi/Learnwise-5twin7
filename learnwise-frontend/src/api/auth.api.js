@@ -38,7 +38,7 @@ export const authApi = {
 
     // Two-factor authentication
     get2FASetup: () => apiRequest('/auth/2fa/setup/'),
-    get2FAStatus: () => apiRequest('/auth/2fa/setup/'),
+    get2FAStatus: () => apiRequest('/accounts/me/'),
     enable2FA: (payload) => apiRequest('/auth/2fa/setup/', { method: 'POST', body: payload }),
     disable2FA: (payload) => apiRequest('/auth/2fa/disable/', { method: 'POST', body: payload }),
 

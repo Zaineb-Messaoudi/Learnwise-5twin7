@@ -8,11 +8,12 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 
-from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary, CoursePresence, CourseVersion, CoursePrerequisite
+from .models import Course, Chapter, CourseMaterial, AudioMaterial, DocumentMaterial, VideoMaterial, Transcription, Summary, CoursePresence, CourseVersion, CoursePrerequisite, LessonCompletion
 from .serializers import (
     CourseSerializer, ChapterSerializer, CourseMaterialSerializer,
     AudioMaterialSerializer, DocumentMaterialSerializer, VideoMaterialSerializer,
     TranscriptionSerializer, SummarySerializer, CourseVersionSerializer, CoursePrerequisiteSerializer,
+    LessonCompletionSerializer,
 )
 
 
@@ -75,7 +76,9 @@ class CourseViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         _require_professor_or_admin(self.request.user)
-        serializer.save(owner=self.request.user)
+        # API-created courses always enter the review workflow as drafts,
+        # regardless of a client-supplied status or past schedule.
+        serializer.save(owner=self.request.user, status='draft')
 
     def perform_update(self, serializer):
         course = self.get_object()
@@ -615,6 +618,9 @@ class CourseMaterialViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Cours non publié.'}, status=status.HTTP_403_FORBIDDEN)
         if user.role == 'professeur' and material.course.owner != user and not user.is_superuser:
             return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
+        # Marquer le matériel comme complété pour l'étudiant (gating des quiz)
+        if user.role == 'etudiant':
+            LessonCompletion.objects.get_or_create(user=user, material=material)
         try:
             import os
             ext = os.path.splitext(material.file.name)[1]
@@ -623,6 +629,62 @@ class CourseMaterialViewSet(viewsets.ModelViewSet):
             return response
         except FileNotFoundError:
             raise Http404("Fichier introuvable sur le disque.")
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def complete(self, request, pk=None):
+        material = self.get_object()
+        if request.user.role != 'etudiant':
+            return Response({'detail': 'Only students can complete lessons.'}, status=status.HTTP_403_FORBIDDEN)
+        if material.course.status != 'published':
+            return Response({'detail': 'Cours non publié.'}, status=status.HTTP_403_FORBIDDEN)
+        completion, _ = LessonCompletion.objects.get_or_create(user=request.user, material=material)
+        return Response(LessonCompletionSerializer(completion).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get', 'post'], permission_classes=[IsAuthenticated])
+    def processing(self, request, pk=None):
+        return Response({'detail': 'Material processing is not available in this deployment.'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def retry(self, request, pk=None):
+        return Response({'detail': 'Material processing retry is not available in this deployment.'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+    @action(detail=True, methods=['get', 'patch'], permission_classes=[IsAuthenticated])
+    def transcription(self, request, pk=None):
+        material = self.get_object()
+        transcription = material.transcriptions.order_by('-created_at').first()
+        if request.method == 'GET':
+            if not transcription:
+                return Response({'detail': 'No transcription exists.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(TranscriptionSerializer(transcription).data)
+        if material.course.owner_id != request.user.id and not request.user.is_superuser:
+            return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
+        if not transcription:
+            transcription = Transcription.objects.create(material=material)
+        serializer = TranscriptionSerializer(transcription, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get', 'patch'], permission_classes=[IsAuthenticated])
+    def summary(self, request, pk=None):
+        material = self.get_object()
+        summary = material.summaries.order_by('-created_at').first()
+        if request.method == 'GET':
+            if not summary:
+                return Response({'detail': 'No summary exists.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(SummarySerializer(summary).data)
+        if material.course.owner_id != request.user.id and not request.user.is_superuser:
+            return Response({'detail': 'Non autorisé.'}, status=status.HTTP_403_FORBIDDEN)
+        if not summary:
+            summary = Summary.objects.create(material=material)
+        serializer = SummarySerializer(summary, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def regenerate_summary(self, request, pk=None):
+        return Response({'detail': 'Summary regeneration is not available in this deployment.'}, status=status.HTTP_501_NOT_IMPLEMENTED)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def generate_thumbnail(self, request, pk=None):
@@ -923,3 +985,13 @@ class SummaryViewSet(viewsets.ModelViewSet):
             return super().destroy(request, *args, **kwargs)
         except PermissionDenied as e:
             return Response({'detail': str(e)}, status=status.HTTP_403_FORBIDDEN)
+
+
+
+class LessonCompletionViewSet(viewsets.ReadOnlyModelViewSet):
+    """Liste les supports compl\u00e9t\u00e9s par l'utilisateur connect\u00e9 (gating des quiz)."""
+    serializer_class = LessonCompletionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return LessonCompletion.objects.filter(user=self.request.user).select_related('material')

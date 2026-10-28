@@ -4,7 +4,7 @@ class AnalyticsConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
         user = self.scope.get("user")
         if not user or not user.is_authenticated:
-            await self.close(code=4401)
+            await self.close(code=4001)
             return
         self.group_name = f"analytics_{user.pk}"
         await self.channel_layer.group_add(self.group_name, self.channel_name)

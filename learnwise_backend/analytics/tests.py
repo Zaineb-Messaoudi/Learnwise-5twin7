@@ -1,28 +1,27 @@
 from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 from asgiref.sync import async_to_sync
 from channels.testing import WebsocketCommunicator
-from content.models import Course, CourseMaterial
+from content.models import Course, CourseMaterial, LessonCompletion
 from .models import (Achievement, Cohort, CohortMembership, Concept, Enrollment, Intervention,
                      LearningActivity, LearningRisk, LearningSession, Performance, Progress,
                      QuestionConcept)
 from .services import evaluate_achievements, recommendations_for
 from learnwise_backend.asgi import application
 
-class AnalyticsTests(TestCase):
+class AnalyticsTests(TransactionTestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="student", email="student@example.com", password="secret", role="etudiant")
         self.other = get_user_model().objects.create_user(username="other", email="other@example.com", password="secret", role="etudiant")
-        self.course = Course.objects.create(title="Django", description="API", level="beginner", language="fr")
+        self.course = Course.objects.create(title="Django", description="API", level="beginner", language="fr", status="published")
         CourseMaterial.objects.create(
-            course=self.course,
-            title="Intro",
-            file=SimpleUploadedFile("test.pdf", b"analytics test material", content_type="application/pdf"),
+            course=self.course, title="Intro",
+            file=SimpleUploadedFile("test.pdf", b"%PDF-1.4 fake pdf content", content_type="application/pdf"),
             material_type="pdf",
         )
         self.client = APIClient()
@@ -35,7 +34,8 @@ class AnalyticsTests(TestCase):
         self.assertEqual(self.client.get(reverse("enrollment-list")).data["count"], 0)
     def test_completed_activity_updates_progress_and_dashboard(self):
         session = LearningSession.objects.create(user=self.user, course=self.course)
-        LearningActivity.objects.create(session=session, activity_type="lesson_completed", completed_at=timezone.now())
+        material = self.course.materials.first()
+        LessonCompletion.objects.create(user=self.user, material=material)
         self.assertEqual(Progress.objects.get(user=self.user, course=self.course).completion_percentage, 100)
         response = self.client.get(reverse("analytics-dashboard"))
         self.assertEqual(response.status_code, 200)
@@ -99,7 +99,7 @@ class AnalyticsTests(TestCase):
     def test_weaknesses_use_mapped_real_answers(self):
         from assessment.models import Answer, Question, Quiz, QuizAttempt
         quiz = Quiz.objects.create(title="Quiz Django", description="", difficulty="easy")
-        question = Question.objects.create(quiz=quiz, text="ORM", type="qcm", difficulty="easy")
+        question = Question.objects.create(quiz=quiz, prompt="ORM", type="single_choice", difficulty="easy")
         concept = Concept.objects.create(course=self.course, code="orm", title="Django ORM")
         QuestionConcept.objects.create(question_id=question.pk, concept=concept)
         for correct in (False, True):
@@ -156,13 +156,18 @@ class AnalyticsTests(TestCase):
 
     def test_performance_is_recomputed_from_real_evaluations(self):
         from assessment.models import Evaluation, Question, Quiz, QuizAttempt
-        quiz = Quiz.objects.create(title="Scores dynamiques", description="", difficulty="easy")
-        question = Question.objects.create(quiz=quiz, text="Notion", type="qcm", difficulty="easy")
+        # The quiz must carry its course directly (Quiz.course), since that is
+        # how the analytics signal now resolves which course to recompute.
+        quiz = Quiz.objects.create(title="Scores dynamiques", description="", difficulty="easy", course=self.course)
+        question = Question.objects.create(quiz=quiz, prompt="Notion", type="single_choice", difficulty="easy")
         concept = Concept.objects.create(course=self.course, code="dynamic", title="Notion dynamique")
         QuestionConcept.objects.create(question_id=question.pk, concept=concept)
-        for score in (60, 80):
+        # Performance is now computed from correct_answers/total_questions,
+        # not from a raw "score" field, so these need to be set explicitly.
+        for correct, total in ((6, 10), (8, 10)):
             attempt = QuizAttempt.objects.create(user=self.user, quiz=quiz)
-            Evaluation.objects.create(attempt=attempt, score=score, feedback="")
+            Evaluation.objects.create(attempt=attempt, score=correct * 10, correct_answers=correct,
+                                      total_questions=total, feedback="")
         performance = Performance.objects.get(user=self.user, course=self.course)
         self.assertEqual(performance.average_score, 70)
         self.assertEqual(performance.quiz_count, 2)

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, ArrowRight, Check, ChevronDown, LoaderCircle, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
 import { AppShell } from '../../../layouts/AppShell';
 import { Button, PageHeader } from '../../../components/shared/Primitives';
@@ -7,6 +7,12 @@ import { isBackendApiEnabled } from '../../../api/client';
 import { quizzesApi } from '../../../api/quizzes.api';
 import { exercisesApi } from '../../../api/exercises.api';
 import './assessment-studio.css';
+
+// La génération tourne en arrière-plan sur le serveur : quelques secondes avec Groq, parfois
+// plusieurs minutes avec un modèle local (Ollama). On attend jusqu'à ~6 minutes, juste au-dessus
+// du délai maximal côté serveur, au lieu d'abandonner trop tôt avec un message trompeur.
+const POLL_INTERVAL_MS = 1500;
+const POLL_MAX_ATTEMPTS = 240;
 
 const demoQuestions = [
   { prompt: 'What is the main purpose of backpropagation?', choices: ['Update weights using prediction error', 'Store training examples', 'Choose the network architecture automatically', 'Remove the need for validation'], correct_index: 0, explanation: 'Backpropagation calculates gradients used to adjust model weights.' },
@@ -28,6 +34,7 @@ export function AssessmentStudioPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const removedSavedIds = useRef([]); // exercices déjà enregistrés dont la question a été retirée
 
   useEffect(() => {
     if (!isBackendApiEnabled) return undefined;
@@ -52,6 +59,7 @@ export function AssessmentStudioPage() {
     setNotice('');
     setStatus('processing');
     setQuestions([]);
+    removedSavedIds.current = [];
     try {
       if (!isBackendApiEnabled) {
         await new Promise(resolve => window.setTimeout(resolve, 500));
@@ -68,10 +76,11 @@ export function AssessmentStudioPage() {
         difficulty,
       });
       if (result.id) setGenerationId(result.id);
-      for (let attempt = 0; result.status && ['queued', 'processing'].includes(result.status) && result.id && attempt < 30; attempt += 1) {
-        await new Promise(resolve => window.setTimeout(resolve, 1500));
+      for (let attempt = 0; result.status && ['queued', 'processing'].includes(result.status) && result.id && attempt < POLL_MAX_ATTEMPTS; attempt += 1) {
+        await new Promise(resolve => window.setTimeout(resolve, POLL_INTERVAL_MS));
         result = await quizzesApi.generation(result.id);
       }
+      if (['queued', 'processing'].includes(result.status)) throw new Error('The AI is taking longer than expected. Wait a moment, then generate again.');
       if (result.status === 'failed') throw new Error(result.error_message || 'Generation failed. Edit the source and try again.');
       const draft = result.questions || result.result?.questions || [];
       if (!draft.length) throw new Error('Generation finished without questions. Retry with a clearer course topic.');
@@ -91,7 +100,44 @@ export function AssessmentStudioPage() {
 
   const updateQuestion = (index, changes) => setQuestions(current => current.map((question, itemIndex) => itemIndex === index ? { ...question, ...changes } : question));
   const updateChoice = (questionIndex, choiceIndex, value) => setQuestions(current => current.map((question, itemIndex) => itemIndex === questionIndex ? { ...question, choices: question.choices.map((choice, optionIndex) => optionIndex === choiceIndex ? value : choice) } : question));
+  const removeQuestion = index => {
+    const removed = questions[index];
+    if (removed?.savedId) removedSavedIds.current.push(removed.savedId);
+    setQuestions(current => current.filter((_, itemIndex) => itemIndex !== index));
+  };
   const addQuestion = () => setQuestions(current => [...current, { prompt: '', choices: ['', '', '', ''], correct_index: 0, explanation: '' }]);
+  // Côté backend, un exercice = UNE question (title, prompt, choices), pas une liste.
+  // Un "exercise set" généré devient donc N exercices ; chaque question garde l'id de son exercice
+  // (savedId) pour être mise à jour au lieu d'être recréée à chaque sauvegarde.
+  const exercisePayload = (question, index) => ({
+    course_id: courseId,
+    title: `${topic.trim()} · ${index + 1}`.slice(0, 255),
+    prompt: question.prompt,
+    explanation: question.explanation,
+    choices: question.choices.map((text, choiceIndex) => ({ text, is_correct: choiceIndex === Number(question.correct_index) })),
+  });
+  const saveExerciseSet = async publish => {
+    const savedIds = {};
+    try {
+      // 1. supprimer les exercices dont la question a été retirée de la liste
+      while (removedSavedIds.current.length) {
+        await exercisesApi.remove(removedSavedIds.current[0]);
+        removedSavedIds.current.shift();
+      }
+      // 2. créer (ou mettre à jour) un exercice par question
+      for (const [index, question] of questions.entries()) {
+        const payload = exercisePayload(question, index);
+        const saved = question.savedId ? await exercisesApi.update(question.savedId, payload) : await exercisesApi.create(payload);
+        savedIds[index] = saved?.id || question.savedId;
+      }
+      // 3. publier chacun si demandé
+      if (publish) for (const exerciseId of Object.values(savedIds)) await exercisesApi.publish(exerciseId);
+    } finally {
+      // Même en cas d'erreur en cours de route : on mémorise les ids déjà créés, sinon un nouvel
+      // essai créerait des doublons.
+      setQuestions(current => current.map((question, index) => savedIds[index] ? { ...question, savedId: savedIds[index] } : question));
+    }
+  };
   const saveDraft = async publish => {
     if (!questions.length || questions.some(question => !question.prompt.trim() || question.choices.length < 2 || question.choices.some(choice => !choice.trim()))) {
       setError('Complete each question and at least two choices before saving.');
@@ -100,17 +146,14 @@ export function AssessmentStudioPage() {
     setBusy(true);
     setError('');
     try {
-      if (isBackendApiEnabled) {
-        const payload = { course_id: courseId, title: topic.trim(), difficulty, status: 'draft', questions: questions.map(question => ({ prompt: question.prompt, explanation: question.explanation, choices: question.choices.map((text, index) => ({ text, is_correct: index === Number(question.correct_index) })) })) };
-        const saved = kind === 'quiz'
-          ? quizId ? await quizzesApi.update(quizId, payload) : await quizzesApi.create(payload)
-          : quizId ? await exercisesApi.update(quizId, payload) : await exercisesApi.create(payload);
+      if (isBackendApiEnabled && kind === 'quiz') {
+        const payload = { course_id: courseId, title: topic.trim().slice(0, 255), difficulty, status: 'draft', questions: questions.map(question => ({ prompt: question.prompt, explanation: question.explanation, choices: question.choices.map((text, index) => ({ text, is_correct: index === Number(question.correct_index) })) })) };
+        const saved = quizId ? await quizzesApi.update(quizId, payload) : await quizzesApi.create(payload);
         const savedId = saved.id || quizId;
         setQuizId(savedId);
-        if (publish && savedId) {
-          if (kind === 'quiz') await quizzesApi.publish(savedId);
-          else await exercisesApi.publish(savedId);
-        }
+        if (publish && savedId) await quizzesApi.publish(savedId);
+      } else if (isBackendApiEnabled) {
+        await saveExerciseSet(publish);
       }
       setStatus(publish ? 'published' : 'saved');
       setNotice(publish ? 'Assessment updated.' : 'Draft updated.');
@@ -138,7 +181,7 @@ export function AssessmentStudioPage() {
       </form>
       <section className="assessment-review" aria-labelledby="assessment-review-heading">
         <header><div><span className="eyebrow">TEACHER REVIEW REQUIRED</span><h2 id="assessment-review-heading">{questions.length ? `${questions.length} draft questions` : 'Your draft will appear here'}</h2></div>{questions.length > 0 && <span className={`assessment-state ${status}`}>{status === 'published' ? 'Published' : status === 'saved' ? 'Draft saved' : 'Needs review'}</span>}</header>
-        {!questions.length ? <div className="assessment-empty"><Sparkles size={25}/><p>Choose a course and learning goal to create an editable assessment draft.</p></div> : <div className="assessment-question-list">{questions.map((question, index) => <article className="assessment-question" key={`${generationId || 'demo'}-${index}`}><div className="assessment-question-head"><span>QUESTION {String(index + 1).padStart(2, '0')}</span><button type="button" aria-label={`Remove question ${index + 1}`} onClick={() => setQuestions(current => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={15}/></button></div><label>Question<textarea rows={2} value={question.prompt} onChange={event => updateQuestion(index, { prompt: event.target.value })} /></label><fieldset><legend>Answer choices <span>Select the correct answer</span></legend>{question.choices.map((choice, choiceIndex) => <label className="assessment-choice" key={`${index}-${choiceIndex}`}><input type="radio" name={`correct-${index}`} checked={Number(question.correct_index) === choiceIndex} onChange={() => updateQuestion(index, { correct_index: choiceIndex })}/><input value={choice} onChange={event => updateChoice(index, choiceIndex, event.target.value)} aria-label={`Question ${index + 1} choice ${choiceIndex + 1}`} placeholder={`Choice ${choiceIndex + 1}`}/></label>)}</fieldset><label>Explanation<input value={question.explanation || ''} onChange={event => updateQuestion(index, { explanation: event.target.value })} placeholder="Why is this the correct answer?"/></label></article>)}</div>}
+        {!questions.length ? <div className="assessment-empty"><Sparkles size={25}/><p>Choose a course and learning goal to create an editable assessment draft.</p></div> : <div className="assessment-question-list">{questions.map((question, index) => <article className="assessment-question" key={`${generationId || 'demo'}-${index}`}><div className="assessment-question-head"><span>QUESTION {String(index + 1).padStart(2, '0')}</span><button type="button" aria-label={`Remove question ${index + 1}`} onClick={() => removeQuestion(index)}><Trash2 size={15}/></button></div><label>Question<textarea rows={2} value={question.prompt} onChange={event => updateQuestion(index, { prompt: event.target.value })} /></label><fieldset><legend>Answer choices <span>Select the correct answer</span></legend>{question.choices.map((choice, choiceIndex) => <label className="assessment-choice" key={`${index}-${choiceIndex}`}><input type="radio" name={`correct-${index}`} checked={Number(question.correct_index) === choiceIndex} onChange={() => updateQuestion(index, { correct_index: choiceIndex })}/><input value={choice} onChange={event => updateChoice(index, choiceIndex, event.target.value)} aria-label={`Question ${index + 1} choice ${choiceIndex + 1}`} placeholder={`Choice ${choiceIndex + 1}`}/></label>)}</fieldset><label>Explanation<input value={question.explanation || ''} onChange={event => updateQuestion(index, { explanation: event.target.value })} placeholder="Why is this the correct answer?"/></label></article>)}</div>}
         {questions.length > 0 && <footer className="assessment-review-actions"><button type="button" className="assessment-add-question" onClick={addQuestion}><Plus size={15}/> Add question <ChevronDown size={14}/></button><div><Button variant="secondary" disabled={busy} onClick={() => void saveDraft(false)}><Save size={14}/> Save draft</Button><Button disabled={busy} onClick={() => void saveDraft(true)}><Check size={14}/>{busy ? 'Saving…' : 'Publish'}</Button></div></footer>}
       </section>
     </div>

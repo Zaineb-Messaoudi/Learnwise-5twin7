@@ -11,6 +11,7 @@ router.register(r'documents', views.DocumentMaterialViewSet, basename='documentm
 router.register(r'videos', views.VideoMaterialViewSet, basename='videomaterial')
 router.register(r'transcriptions', views.TranscriptionViewSet, basename='transcription')
 router.register(r'summaries', views.SummaryViewSet, basename='summary')
+router.register(r'lesson-completions', views.LessonCompletionViewSet, basename='lessoncompletion')
 
 urlpatterns = [
     path('', include(router.urls)),

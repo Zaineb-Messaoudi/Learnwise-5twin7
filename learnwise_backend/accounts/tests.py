@@ -1104,6 +1104,7 @@ class EmailChangeTest(APITestCase):
     def test_request_email_change(self):
         response = self.client.post('/api/v1/auth/email-change/', {
             'new_email': 'newemail@example.com',
+            'current_password': 'SecurePass123!@',
         })
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.user.refresh_from_db()

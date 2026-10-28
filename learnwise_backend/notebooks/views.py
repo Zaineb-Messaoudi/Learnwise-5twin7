@@ -33,6 +33,30 @@ class NotebookViewSet(viewsets.ModelViewSet):
             serializer.save(notebook=notebook)
             return Response(NotebookEntrySerializer(serializer.instance).data, status=201)
 
+    @action(detail=True, methods=['get', 'post'])
+    def sources(self, request, pk=None):
+        return Response({'detail': 'Notebook sources are not available in this deployment.'}, status=501)
+
+    @action(detail=True, methods=['post'])
+    def chat(self, request, pk=None):
+        return Response({'detail': 'Notebook chat is not available in this deployment.'}, status=501)
+
+    @action(detail=True, methods=['post'])
+    def guides(self, request, pk=None):
+        return Response({'detail': 'Notebook guides are not available in this deployment.'}, status=501)
+
+    @action(detail=True, methods=['get'])
+    def notes(self, request, pk=None):
+        return Response({'detail': 'Notebook notes are not available in this deployment.'}, status=501)
+
+    @action(detail=True, methods=['post'], url_path='suggested-notes')
+    def suggested_notes(self, request, pk=None):
+        return Response({'detail': 'Suggested notes are not available in this deployment.'}, status=501)
+
+    @action(detail=True, methods=['post'], url_path='key-points')
+    def key_points(self, request, pk=None):
+        return Response({'detail': 'Key points are not available in this deployment.'}, status=501)
+
 
 class NotebookEntryViewSet(viewsets.ModelViewSet):
     permission_classes = [IsOnboarded]

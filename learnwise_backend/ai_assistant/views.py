@@ -65,6 +65,12 @@ class AssistantMessageViewSet(viewsets.ModelViewSet):
             return AssistantMessage.objects.filter(session_id=session_id, session__user=self.request.user)
         return AssistantMessage.objects.filter(session__user=self.request.user)
 
+    def perform_create(self, serializer):
+        session = serializer.validated_data['session']
+        if session.user_id != self.request.user.id:
+            raise permissions.PermissionDenied("Session not found or not yours.")
+        serializer.save()
+
 
 class ExplanationViewSet(viewsets.ModelViewSet):
     serializer_class = ExplanationSerializer
@@ -73,6 +79,12 @@ class ExplanationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return Explanation.objects.filter(message__session__user=self.request.user)
 
+    def perform_create(self, serializer):
+        message = serializer.validated_data['message']
+        if message.session.user_id != self.request.user.id:
+            raise permissions.PermissionDenied("Message not found or not yours.")
+        serializer.save()
+
 
 class IllustrationViewSet(viewsets.ModelViewSet):
     serializer_class = IllustrationSerializer
@@ -80,3 +92,9 @@ class IllustrationViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return Illustration.objects.filter(message__session__user=self.request.user)
+
+    def perform_create(self, serializer):
+        message = serializer.validated_data['message']
+        if message.session.user_id != self.request.user.id:
+            raise permissions.PermissionDenied("Message not found or not yours.")
+        serializer.save()
